@@ -297,7 +297,7 @@ Each plugin supports the `formatData(data, format)` method for consistent output
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/mcp-talk-to-project-next-js.git
+git clone https://github.com/devalma/mcp-talk-to-project-next-js.git
 cd mcp-talk-to-project-next-js
 
 # Install dependencies
@@ -305,6 +305,57 @@ npm install
 
 # Build the server
 npm run build
+```
+
+## 🚀 Quick Start
+
+### Option 1: Use with Claude Desktop (Recommended)
+
+1. **Clone and setup the MCP server:**
+```bash
+git clone https://github.com/devalma/mcp-talk-to-project-next-js.git
+cd mcp-talk-to-project-next-js
+npm install
+npm run build
+```
+
+2. **Add to Claude Desktop config** (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+```json
+{
+  "mcpServers": {
+    "nextjs-analyzer": {
+      "command": "node",
+      "args": ["/absolute/path/to/mcp-talk-to-project-next-js/dist/index.js"],
+      "env": {
+        "NEXTJS_PROJECT_PATH": "/absolute/path/to/your/nextjs/project"
+      }
+    }
+  }
+}
+```
+
+3. **Restart Claude Desktop** and start analyzing your Next.js projects!
+
+### Option 2: Use with npx (Coming Soon)
+
+**Note:** This option will be available once the package is published to npm.
+
+```bash
+# Will be available after npm publish
+npx mcp-talk-to-project-next-js /path/to/your/nextjs/project
+```
+
+### Option 3: Standalone CLI Usage
+
+Test the analyzer directly from command line:
+
+```bash
+# Analyze your project
+export NEXTJS_PROJECT_PATH="/path/to/your/nextjs/project"
+npm run cli analyze components
+
+# Or use the demo project
+npm run test
 ```
 
 ### Testing
@@ -344,6 +395,76 @@ Add the MCP server to your Claude Desktop configuration:
 - `NEXTJS_PROJECT_PATH`: (Required) Absolute path to the Next.js project to analyze
 - `CACHE_ENABLED`: (Optional) Enable AST caching for better performance (default: true)
 - `MAX_FILE_SIZE`: (Optional) Maximum file size to parse in bytes (default: 1MB)
+
+### Configuration Examples
+
+**Example 1: Local installation (recommended for now)**
+```json
+{
+  "mcpServers": {
+    "nextjs-analyzer": {
+      "command": "node",
+      "args": ["/Users/you/tools/mcp-talk-to-project-next-js/dist/index.js"],
+      "env": {
+        "NEXTJS_PROJECT_PATH": "/Users/you/projects/my-nextjs-app"
+      }
+    }
+  }
+}
+```
+
+**Example 2: Multiple projects (local installation)**
+```json
+{
+  "mcpServers": {
+    "nextjs-analyzer-project1": {
+      "command": "node",
+      "args": ["/Users/you/tools/mcp-talk-to-project-next-js/dist/index.js"],
+      "env": {
+        "NEXTJS_PROJECT_PATH": "/Users/you/projects/ecommerce-app"
+      }
+    },
+    "nextjs-analyzer-project2": {
+      "command": "node", 
+      "args": ["/Users/you/tools/mcp-talk-to-project-next-js/dist/index.js"],
+      "env": {
+        "NEXTJS_PROJECT_PATH": "/Users/you/projects/blog-app"
+      }
+    }
+  }
+}
+```
+
+**Example 3: Using with npm (development)**
+```json
+{
+  "mcpServers": {
+    "nextjs-analyzer-dev": {
+      "command": "npm",
+      "args": ["run", "start"],
+      "cwd": "/Users/you/tools/mcp-talk-to-project-next-js",
+      "env": {
+        "NEXTJS_PROJECT_PATH": "/Users/you/projects/current-project"
+      }
+    }
+  }
+}
+```
+
+**Example 4: Using with npx (after npm publish)**
+```json
+{
+  "mcpServers": {
+    "nextjs-analyzer": {
+      "command": "npx",
+      "args": ["mcp-talk-to-project-next-js"],
+      "env": {
+        "NEXTJS_PROJECT_PATH": "/Users/you/projects/my-nextjs-app"
+      }
+    }
+  }
+}
+```
 
 ## 🎯 Usage Examples
 
@@ -456,11 +577,10 @@ Add the MCP server to your Claude Desktop configuration:
   }
 }
 ```
-```
 
 ### Feature Analysis
 **Query:** "What features are organized in my src folder?"
-*Uses: `get_features` with default srcDir: "src"*
+*Uses: `analyze_features` with default srcDir: "src"*
 
 **Example Response:**
 ```json
@@ -531,7 +651,7 @@ Add the MCP server to your Claude Desktop configuration:
 
 ### Specific Component Details
 **Query:** "Tell me about the LoginForm component - what props does it accept?"
-*Uses: `get_components` with path "features/auth/components/LoginForm.tsx", includeProps: true*
+*Uses: `analyze_components` with path "features/auth/components/LoginForm.tsx", includeProps: true*
 
 **Example Response:**
 ```json
@@ -652,40 +772,6 @@ src/
 - React patterns (Context, HOCs, Render Props)
 - Next.js patterns (Data fetching, Routing)
 - Architecture patterns identification
-    "name": "User",
-    "file": "src/types/auth.ts",
-    "kind": "interface",
-    "sourceCode": "interface User { id: string; email: string; name: string; role: 'admin' | 'user'; createdAt: Date; }",
-    "description": "User entity interface for authentication system",
-    "properties": ["id", "email", "name", "role", "createdAt"],
-    "usedBy": ["useAuth", "UserProfile", "AdminPanel"],
-    "feature": "authentication",
-    "extends": [],
-    "lastModified": "2024-01-08T16:45:00Z"
-  }
-}
-```
-
-### Pages Collection (`nextjs_pages`)
-```json
-{
-  "id": "page_blog_slug_uuid",
-  "vector": [0.9, 1.0, ...],
-  "payload": {
-    "route": "/blog/[slug]",
-    "file": "pages/blog/[slug].tsx",
-    "component": "BlogPost",
-    "type": "dynamic",
-    "dataFetching": ["getStaticProps", "getStaticPaths"],
-    "dynamicParams": ["slug"],
-    "sourceCode": "export default function BlogPost({ post }) { return <article>...</article>; }",
-    "description": "Dynamic blog post page with static generation",
-    "dependencies": ["BlogLayout", "MDXContent", "ShareButtons"],
-    "feature": "blog",
-    "lastModified": "2024-01-12T11:30:00Z"
-  }
-}
-```
 
 ## 🐛 Troubleshooting
 
@@ -705,6 +791,14 @@ src/
 - Large projects may take time on first scan
 - Clear cache if experiencing memory issues
 - Consider scanning specific directories instead of entire project
+
+**npx issues:**
+- **Package not published yet**: The npm package is not yet published, so npx won't work until after `npm publish`
+- For now, use the local installation method (clone the repository)
+- After publishing to npm, ensure you have npm/Node.js 18+ installed
+- If npx fails after publishing, try `npm install -g mcp-talk-to-project-next-js` first
+- On first run, npx may take time to download and cache the package
+- Use `npx --verbose mcp-talk-to-project-next-js` for debugging
 
 ### Debug Mode
 
@@ -730,10 +824,9 @@ MIT License - see [LICENSE](LICENSE) for details
 - [Model Context Protocol](https://modelcontextprotocol.io/)
 - [Next.js](https://nextjs.org/)
 - [Babel Parser](https://babeljs.io/docs/en/babel-parser)
-- [TypeScript Compiler API](https://github.com/microsoft/TypeScript/wiki/Using-the-Compiler-API)
 
 ## 📞 Support
 
-- [GitHub Issues](https://github.com/your-username/mcp-talk-to-project-next-js/issues)
+- [GitHub Issues](https://github.com/devalma/mcp-talk-to-project-next-js/issues)
 - [MCP Documentation](https://modelcontextprotocol.io/docs)
 - [Next.js Documentation](https://nextjs.org/docs)

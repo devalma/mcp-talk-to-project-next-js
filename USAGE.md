@@ -2,26 +2,53 @@
 
 ## 🚀 Getting Started
 
+### Option 1: Local Installation (Recommended for now)
+
+```bash
+# Clone and build the server
+git clone https://github.com/devalma/mcp-talk-to-project-next-js.git
+cd mcp-talk-to-project-next-js
+npm install
+npm run build
+```
+
+### Option 2: Using npx (Coming Soon)
+
+```bash
+# Will be available after npm publish
+npx mcp-talk-to-project-next-js /path/to/your/nextjs/project
+
+# Or with environment variable
+export NEXTJS_PROJECT_PATH="/path/to/your/nextjs/project"
+npx mcp-talk-to-project-next-js
+```
+
+### Current Setup Instructions
+
+### Current Setup Instructions
+
 1. **Build the server:**
    ```bash
+   git clone https://github.com/devalma/mcp-talk-to-project-next-js.git
+   cd mcp-talk-to-project-next-js
    npm install
    npm run build
    ```
 
 2. **Test with demo project:**
    ```bash
-   node demo.js
+   npm run test
    # This creates a demo Next.js project and shows what the server can extract
    ```
 
 3. **Test with your own project:**
    ```bash
    export NEXTJS_PROJECT_PATH="/path/to/your/nextjs/project"
-   node test.js
+   npm run cli analyze components
    ```
 
 4. **Configure Claude Desktop:**
-   - Copy `claude-config.json` content to your Claude Desktop config
+   - Copy configuration from README.md to your Claude Desktop config
    - Update the paths to match your system
    - Restart Claude Desktop
 

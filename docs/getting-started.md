@@ -1,22 +1,34 @@
 # Getting Started with Next.js Project Analyzer
 
-Quick start guide to get the enhanced MCP server running for comprehensive Next.js project analysis with flexible modes and pattern matching.
+Quick start guide to get the MCP server running for comprehensive Next.js project analysis with flexible modes and pattern matching.
 
 ## 📋 Prerequisites
 
 - **Node.js** 18+ 
 - **npm** or **yarn**
-- **TypeScript** knowledge (optional but helpful)
 - A **Next.js project** to analyze
 - **Claude Desktop** or MCP-compatible client
 
 ## ⚡ Quick Installation
 
-### 1. Clone and Install
+### Option 1: Use with npx (Easiest - No Installation Required)
+
+**Note:** This requires the package to be published to npm first.
+
+```bash
+# Run directly from npm
+npx mcp-talk-to-project-next-js /path/to/your/nextjs/project
+
+# Or set environment variable and run
+export NEXTJS_PROJECT_PATH="/path/to/your/nextjs/project"
+npx mcp-talk-to-project-next-js
+```
+
+### Option 2: Clone and Install
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/devalma/mcp-talk-to-project-next-js.git
 cd mcp-talk-to-project-next-js
 
 # Install dependencies
@@ -26,20 +38,38 @@ npm install
 npm run build
 ```
 
-### 2. Verify Installation
+### 3. Verify Installation
 
 ```bash
 # Test the demo project
-node demo.js
+npm run test
 
 # Test with your project
 export NEXTJS_PROJECT_PATH="/path/to/your/nextjs/project"
-node test.js
+npm run cli analyze components
 ```
 
 ## 🚀 Usage Options
 
-### Option 1: MCP Server (Recommended)
+### Option 1: MCP Server with npx (Easiest)
+
+Configure with Claude Desktop using npx:
+
+```json
+{
+  "mcpServers": {
+    "nextjs-analyzer": {
+      "command": "npx",
+      "args": ["mcp-talk-to-project-next-js"],
+      "env": {
+        "NEXTJS_PROJECT_PATH": "/absolute/path/to/your/nextjs/project"
+      }
+    }
+  }
+}
+```
+
+### Option 2: MCP Server with Local Installation
 
 Configure with Claude Desktop for interactive analysis:
 
