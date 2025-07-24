@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Preparing for next release
+
+## [1.1.0] - 2025-07-25
+
 ### Added
 - 🌍 **i18n Translation Analyzer Plugin** - Comprehensive internationalization analysis
   - Automatic language detection from directory structure and config files
@@ -28,6 +33,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Plugin development documentation with real-world modular architecture example
 - Enhanced BaseExtractor pattern documentation
 - Updated README with i18n capabilities and usage examples
+
+### Features
+- **i18n Analysis**: Complete translation coverage analysis for internationalized projects
+- **Language Detection**: Smart automatic detection from multiple sources (directories, config files, translation files)
+- **String Analysis**: AST-based detection of untranslated strings in JavaScript/TypeScript code
+- **Translation Management**: JSON translation file validation and missing key detection
+- **Modular Architecture**: Clean separation of concerns with focused, reusable components
+- **Performance Optimized**: Caching, parallel processing, and smart file filtering
+- **CLI Integration**: Flexible command-line interface with multiple output formats
+
+### Technical Details
+- Modular plugin architecture with 7 focused components
+- Advanced language detection avoiding false positives from node_modules
+- Babel AST parsing for accurate string extraction from JSX and template literals
+- JSON translation file processing with nested key support
+- Intelligent result aggregation and formatting
+- Support for complex i18n setups and multiple locale directories
 
 ## [1.0.0] - 2025-07-24
 
