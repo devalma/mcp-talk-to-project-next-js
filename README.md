@@ -1,3 +1,5 @@
+Note: this is proof of concept and WIP. It tested on a limited set of projects and may have lack of flexibility
+
 # Next.js Project Analyzer MCP Server
 
 A Model Context Protocol (MCP) server that provides comprehensive analysis of Next.js projects using Abstract Syntax Tree (AST) parsing. This server enables AI assistants to understand Next.js codebases by extracting detailed information about components, hooks, pages, features, and architectural patterns with flexible analysis modes.
@@ -41,6 +43,14 @@ A Model Context Protocol (MCP) server that provides comprehensive analysis of Ne
 - **React Patterns**: Find context patterns, hook patterns, state management
 - **Next.js Patterns**: Identify data fetching patterns, routing patterns
 - **Custom Pattern Matching**: Target specific patterns with flexible filtering
+
+### 🌍 i18n Translation Analysis
+- **Project Language Detection**: Automatically detect available languages from directory structure and config files
+- **Translation Coverage**: Find strings that need translation wrapping
+- **Missing Translation Keys**: Identify missing keys across language files
+- **Translation File Analysis**: Analyze JSON translation files for completeness
+- **Multi-Language Support**: Support for complex i18n setups with multiple locales
+- **Modular Architecture**: Clean separation of concerns with dedicated modules for language detection, AST analysis, and result processing
 
 ## 🛠️ Available Tools
 
@@ -213,6 +223,44 @@ Get help information about available commands and usage.
 ```
 
 **Returns:** Comprehensive help documentation and usage examples
+
+### `analyze_i18n`
+Comprehensive internationalization (i18n) analysis for translation management.
+
+**Parameters:**
+```json
+{
+  "path": "string (optional) - Directory path to analyze (default: project root)",
+  "format": "text|markdown|json - Output format (default: text)",
+  "mode": "all|specific|detailed - Analysis depth (default: all)",
+  "languages": "string[] (optional) - Specific languages to analyze (auto-detected if not provided)",
+  "includeUntranslated": "boolean - Include untranslated strings (default: true)",
+  "includeMissing": "boolean - Include missing translation keys (default: true)",
+  "filePattern": "string - Pattern to match specific files (e.g., '**/*.tsx', 'src/components/**')"
+}
+```
+
+**Features:**
+- **Automatic Language Detection**: Detects languages from directory structure, config files, and translation files
+- **Untranslated String Detection**: Finds hardcoded strings that should be wrapped for translation
+- **Missing Key Analysis**: Identifies translation keys missing from language files
+- **Translation Coverage**: Shows completeness across all detected languages
+- **Modular Analysis**: Uses dedicated modules for language detection, AST parsing, and result processing
+
+**Examples:**
+```json
+// Full i18n analysis with auto-detected languages
+{"mode": "all"}
+
+// Analyze specific language files
+{"mode": "specific", "languages": ["en", "es", "uk"]}
+
+// Detailed analysis of components only
+{"mode": "detailed", "filePattern": "src/components/**", "format": "markdown"}
+
+// Focus on untranslated strings only
+{"includeUntranslated": true, "includeMissing": false}
+```
 
 ---
 

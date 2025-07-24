@@ -72,6 +72,18 @@
 }
 ```
 
+### analyze_i18n
+```json
+{
+  "mode": "all|specific|detailed",
+  "languages": ["en", "es", "fr"],
+  "includeUntranslated": true,
+  "includeMissing": true,
+  "filePattern": "src/components/**",
+  "format": "text|markdown|json"
+}
+```
+
 ## 💬 Claude Examples
 
 ### Basic Analysis
@@ -87,6 +99,8 @@
 "Show me API routes only"
 "Find authentication-related features"
 "Analyze custom hooks only"
+"Check translation coverage for Spanish"
+"Find untranslated strings in components"
 ```
 
 ### Detailed Analysis
@@ -94,6 +108,16 @@
 "Analyze components in detail with props and hooks"
 "Give me comprehensive page analysis"
 "Show detailed feature breakdown with TypeScript types"
+"Analyze i18n setup with missing translation keys"
+```
+
+### i18n-Specific Examples
+```
+"Analyze internationalization setup"
+"Find missing translation keys"
+"Show untranslated strings in the codebase"
+"Check translation coverage across all languages"
+"Analyze i18n for components only"
 ```
 
 ### Format Specifications

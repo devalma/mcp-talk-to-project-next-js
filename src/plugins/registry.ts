@@ -8,6 +8,7 @@ import { PageExtractorPlugin } from './page-extractor/index.js';
 import { PatternExtractorPlugin } from './pattern-extractor/index.js';
 import { FeatureExtractorPlugin } from './feature-extractor/index.js';
 import { HelpExtractorPlugin } from './help-extractor/index.js';
+import { I18nExtractorPlugin } from './i18n-extractor/index.js';
 import type { PluginManager } from './manager.js';
 
 /**
@@ -39,6 +40,10 @@ export function registerAllPlugins(manager: PluginManager): void {
   // Help Extractor Plugin (dynamic help system)
   const helpPlugin = new HelpExtractorPlugin();
   manager.register(helpPlugin);
+
+  // I18n Extractor Plugin (internationalization analysis)
+  const i18nPlugin = new I18nExtractorPlugin();
+  manager.register(i18nPlugin);
 }
 
 /**

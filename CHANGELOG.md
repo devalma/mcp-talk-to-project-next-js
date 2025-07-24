@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- 🌍 **i18n Translation Analyzer Plugin** - Comprehensive internationalization analysis
+  - Automatic language detection from directory structure and config files
+  - Untranslated string detection in source code
+  - Missing translation key identification across language files
+  - Translation coverage analysis and reporting
+  - Modular architecture with dedicated components:
+    - `LanguageDetector` - Smart language detection avoiding false positives
+    - `ASTAnalyzer` - Advanced string extraction using Babel AST parsing
+    - `TranslationFileAnalyzer` - JSON translation file validation and analysis
+    - `ResultProcessor` - Intelligent result aggregation and formatting
+  - CLI integration with flexible filtering and output formats
+  - Support for popular i18n libraries (react-i18next, next-i18next)
+  - Performance optimizations with caching and parallel processing
+- `analyze_i18n` MCP tool for translation analysis
+- Comprehensive documentation for i18n plugin architecture and usage
+
+### Improved
+- Plugin development documentation with real-world modular architecture example
+- Enhanced BaseExtractor pattern documentation
+- Updated README with i18n capabilities and usage examples
+
 ## [1.0.0] - 2025-07-24
 
 ### Added

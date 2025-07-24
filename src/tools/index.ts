@@ -13,6 +13,7 @@ import { analyzeHooksTool } from './analyze-hooks.js';
 import { analyzePagesTool } from './analyze-pages.js';
 import { analyzeFeaturesTools } from './analyze-features.js';
 import { analyzePatternsTools } from './analyze-patterns.js';
+import { analyzeI18nTool } from './analyze-i18n.js';
 import { projectOverviewTool } from './project-overview.js';
 import { helpTool } from './help.js';
 
@@ -23,6 +24,7 @@ const toolDefinitions: ToolDefinition[] = [
   analyzePagesTool,
   analyzeFeaturesTools,
   analyzePatternsTools,
+  analyzeI18nTool,
   projectOverviewTool,
   helpTool,
 ];

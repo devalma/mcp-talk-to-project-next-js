@@ -852,5 +852,81 @@ export class HookUsagePlugin extends BaseExtractor<HookResult, HookSummary> {
 - **Security**: Scan for security anti-patterns
 - **Accessibility**: Check for a11y compliance
 - **Bundle Size**: Analyze import patterns for optimization
+- **i18n Translation Analysis**: Analyze internationalization and translation coverage (see example below)
+
+## 🌍 Real-World Example: i18n Translation Plugin
+
+The i18n plugin demonstrates advanced modular architecture and complex analysis patterns. Here's how it's structured:
+
+### Modular Architecture
+
+The i18n plugin is split into focused modules for maintainability:
+
+```
+src/plugins/i18n-extractor/
+├── types.ts              # Type definitions and interfaces
+├── config.ts             # Configuration constants and patterns
+├── language-detector.ts  # Language detection logic
+├── ast-analyzer.ts       # AST analysis for string extraction
+├── translation-file-analyzer.ts  # Translation file analysis
+├── result-processor.ts   # Result aggregation and formatting
+├── plugin-new.ts         # Main orchestrator plugin
+├── formatter.ts          # Output formatting
+└── index.ts              # Module exports
+```
+
+### Key Features
+
+1. **Automatic Language Detection**: Detects project languages from:
+   - Directory structure (`/locales/en/`, `/locales/es/`)
+   - Configuration files (i18next, package.json)
+   - Translation file patterns
+   - Excludes false positives from node_modules
+
+2. **Comprehensive Analysis**:
+   - Finds untranslated strings in source code
+   - Identifies missing translation keys
+   - Analyzes translation file completeness
+   - Supports complex i18n setups
+
+3. **Modular Design Benefits**:
+   - Each module has a single responsibility
+   - Components can be used independently
+   - Easy to test and maintain
+   - Clear separation of concerns
+
+### Example Usage
+
+```typescript
+import { I18nExtractorPlugin } from '../plugins/i18n-extractor/index.js';
+
+// Basic usage with auto-detection
+const plugin = new I18nExtractorPlugin();
+const results = await plugin.extractFromPath('/path/to/project');
+
+// Advanced configuration
+const plugin = new I18nExtractorPlugin({
+  languages: ['en', 'es', 'fr'],
+  filePatterns: ['src/**/*.{tsx,jsx}'],
+  excludePatterns: ['**/*.test.*', '**/node_modules/**'],
+  includeUntranslated: true,
+  includeMissing: true
+});
+```
+
+### CLI Integration
+
+```bash
+# Analyze entire project
+node cli.js /path/to/project i18n
+
+# Specific analysis with formatting
+node cli.js /path/to/project i18n --format=markdown
+
+# Component-focused analysis
+node cli.js /path/to/project i18n --pattern="src/components/**"
+```
+
+This example shows how to build sophisticated, production-ready plugins using our modular architecture principles.
 
 Start building your plugin today with our DRY architecture! 🚀
