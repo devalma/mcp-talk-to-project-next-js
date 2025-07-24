@@ -1,6 +1,6 @@
 {
   "name": "mcp-talk-to-project-next-js",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "A Model Context Protocol (MCP) server that provides structured information about Next.js projects using Abstract Syntax Tree (AST) parsing",
   "main": "dist/index.js",
   "bin": {
