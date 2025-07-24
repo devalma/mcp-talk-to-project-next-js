@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "nextjs-analyzer": {
+      "command": "node",
+      "args": ["/Users/gumanist/projects/mcp-talk-to-project-next-js/dist/index.js"],
+      "env": {
+        "NEXTJS_PROJECT_PATH": "/Users/gumanist/projects/mcp-talk-to-project-next-js"
+      }
+    }
+  }
+}
