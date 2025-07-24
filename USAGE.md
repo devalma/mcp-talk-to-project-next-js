@@ -12,10 +12,10 @@ npm install
 npm run build
 ```
 
-### Option 2: Using npx (Coming Soon)
+### Option 2: Using npx (Now Available!)
 
 ```bash
-# Will be available after npm publish
+# Use npx to run without installation
 npx mcp-talk-to-project-next-js /path/to/your/nextjs/project
 
 # Or with environment variable

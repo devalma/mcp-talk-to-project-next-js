@@ -336,12 +336,10 @@ npm run build
 
 3. **Restart Claude Desktop** and start analyzing your Next.js projects!
 
-### Option 2: Use with npx (Coming Soon)
-
-**Note:** This option will be available once the package is published to npm.
+### Option 2: Use with npx (Now Available!)
 
 ```bash
-# Will be available after npm publish
+# Use npx to run without installation
 npx mcp-talk-to-project-next-js /path/to/your/nextjs/project
 ```
 
@@ -451,7 +449,7 @@ Add the MCP server to your Claude Desktop configuration:
 }
 ```
 
-**Example 4: Using with npx (after npm publish)**
+**Example 4: Using with npx (now available)**
 ```json
 {
   "mcpServers": {
@@ -792,11 +790,10 @@ src/
 - Clear cache if experiencing memory issues
 - Consider scanning specific directories instead of entire project
 
-**npx issues:**
-- **Package not published yet**: The npm package is not yet published, so npx won't work until after `npm publish`
-- For now, use the local installation method (clone the repository)
-- After publishing to npm, ensure you have npm/Node.js 18+ installed
-- If npx fails after publishing, try `npm install -g mcp-talk-to-project-next-js` first
+**npx now available:**
+- Package successfully published to npm
+- Use `npx mcp-talk-to-project-next-js` to run without installation
+- For development or customization, use the local installation method
 - On first run, npx may take time to download and cache the package
 - Use `npx --verbose mcp-talk-to-project-next-js` for debugging
 
