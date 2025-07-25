@@ -1,8 +1,12 @@
 /**
- * I18n extractor formatter for different output formats
+ * I18n Formatter - Formats i18n analysis results into different output formats
  */
 
-import type { I18nExtractionSummary } from './plugin.js';
+import type { 
+  I18nExtractionSummary, 
+  CommonUntranslatedString,
+  RecommendedAction
+} from './types.js';
 
 export type I18nFormat = 'text' | 'markdown' | 'json';
 
@@ -60,12 +64,12 @@ export class I18nFormatter {
     // Most Common Untranslated Strings
     if (data.mostCommonUntranslatedStrings.length > 0) {
       lines.push('Most Common Untranslated Strings:');
-      data.mostCommonUntranslatedStrings.slice(0, 10).forEach((item, index) => {
+      data.mostCommonUntranslatedStrings.slice(0, 10).forEach((item: CommonUntranslatedString, index: number) => {
         lines.push(`  ${index + 1}. "${item.text}" (${item.count} occurrences)`);
         if (item.files.length <= 3) {
-          lines.push(`     Files: ${item.files.map(f => f.split('/').pop()).join(', ')}`);
+          lines.push(`     Files: ${item.files.map((f: string) => f.split('/').pop()).join(', ')}`);
         } else {
-          lines.push(`     Files: ${item.files.slice(0, 2).map(f => f.split('/').pop()).join(', ')} and ${item.files.length - 2} more`);
+          lines.push(`     Files: ${item.files.slice(0, 2).map((f: string) => f.split('/').pop()).join(', ')} and ${item.files.length - 2} more`);
         }
       });
       lines.push('');
@@ -78,7 +82,7 @@ export class I18nFormatter {
       
       if (data.translationKeys.usedKeys.length > 0) {
         lines.push('  Most used keys:');
-        data.translationKeys.usedKeys.slice(0, 5).forEach(key => {
+        data.translationKeys.usedKeys.slice(0, 5).forEach((key: any) => {
           lines.push(`    "${key.key}": ${key.count} uses`);
         });
       }
@@ -86,7 +90,7 @@ export class I18nFormatter {
       if (data.translationKeys.unusedKeys && data.translationKeys.unusedKeys.length > 0) {
         lines.push(`  Unused keys: ${data.translationKeys.unusedKeys.length}`);
         if (data.translationKeys.unusedKeys.length <= 5) {
-          data.translationKeys.unusedKeys.forEach(key => {
+          data.translationKeys.unusedKeys.forEach((key: string) => {
             lines.push(`    "${key}"`);
           });
         }
@@ -98,8 +102,8 @@ export class I18nFormatter {
     if (Object.keys(data.missingTranslations).length > 0) {
       lines.push('Missing Translations by Language:');
       Object.entries(data.missingTranslations).forEach(([key, languages]) => {
-        if (languages.length > 0) {
-          lines.push(`  "${key}": missing in ${languages.join(', ')}`);
+        if ((languages as string[]).length > 0) {
+          lines.push(`  "${key}": missing in ${(languages as string[]).join(', ')}`);
         }
       });
       lines.push('');
@@ -108,7 +112,7 @@ export class I18nFormatter {
     // Translation Files Analysis
     if (data.translationFileAnalysis) {
       lines.push('Translation Files:');
-      data.translationFileAnalysis.translationFiles.forEach(file => {
+      data.translationFileAnalysis.translationFiles.forEach((file: any) => {
         const fileName = file.file.split('/').pop();
         lines.push(`  ${fileName} (${file.language}): ${file.keyCount} keys`);
         if (file.missingKeys.length > 0) {
@@ -126,7 +130,7 @@ export class I18nFormatter {
     // Recommended Actions
     if (data.recommendedActions.length > 0) {
       lines.push('Recommended Actions:');
-      data.recommendedActions.forEach((action, index) => {
+      data.recommendedActions.forEach((action: RecommendedAction, index: number) => {
         const priority = action.priority.toUpperCase();
         lines.push(`  ${index + 1}. [${priority}] ${action.action}`);
         lines.push(`     ${action.description}`);
@@ -189,11 +193,11 @@ export class I18nFormatter {
       lines.push('');
       lines.push('| Rank | String | Count | Files |');
       lines.push('|------|--------|-------|-------|');
-      data.mostCommonUntranslatedStrings.slice(0, 10).forEach((item, index) => {
+      data.mostCommonUntranslatedStrings.slice(0, 10).forEach((item: CommonUntranslatedString, index: number) => {
         const truncatedText = item.text.length > 50 ? item.text.substring(0, 47) + '...' : item.text;
         const filesList = item.files.length <= 2 
-          ? item.files.map(f => f.split('/').pop()).join(', ')
-          : `${item.files.slice(0, 2).map(f => f.split('/').pop()).join(', ')} (+${item.files.length - 2})`;
+          ? item.files.map((f: string) => f.split('/').pop()).join(', ')
+          : `${item.files.slice(0, 2).map((f: string) => f.split('/').pop()).join(', ')} (+${item.files.length - 2})`;
         lines.push(`| ${index + 1} | \`${truncatedText}\` | ${item.count} | ${filesList} |`);
       });
       lines.push('');
@@ -211,7 +215,7 @@ export class I18nFormatter {
         lines.push('');
         lines.push('| Key | Usage Count |');
         lines.push('|-----|-------------|');
-        data.translationKeys.usedKeys.slice(0, 10).forEach(key => {
+        data.translationKeys.usedKeys.slice(0, 10).forEach((key: any) => {
           lines.push(`| \`${key.key}\` | ${key.count} |`);
         });
         lines.push('');
@@ -231,7 +235,7 @@ export class I18nFormatter {
       lines.push('');
       lines.push('| File | Language | Keys | Missing Keys |');
       lines.push('|------|----------|------|--------------|');
-      data.translationFileAnalysis.translationFiles.forEach(file => {
+      data.translationFileAnalysis.translationFiles.forEach((file: any) => {
         const fileName = file.file.split('/').pop();
         lines.push(`| ${fileName} | ${file.language} | ${file.keyCount} | ${file.missingKeys.length} |`);
       });
@@ -249,7 +253,7 @@ export class I18nFormatter {
     if (data.recommendedActions.length > 0) {
       lines.push('## 🔧 Recommended Actions');
       lines.push('');
-      data.recommendedActions.forEach((action, index) => {
+      data.recommendedActions.forEach((action: RecommendedAction, index: number) => {
         const priority = action.priority === 'high' ? '🔴' : action.priority === 'medium' ? '🟡' : '🟢';
         lines.push(`### ${index + 1}. ${priority} ${action.action}`);
         lines.push('');

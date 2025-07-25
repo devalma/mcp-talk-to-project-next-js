@@ -1,10 +1,11 @@
 /**
- * AST Analyzer Module - Analyzes JavaScript/TypeScript AST for i18n patterns
+ * AST Analyzer Module - Analyzes JavaScript/TypeScript AST for i18n patterns using modular validators
  */
 
 import { ASTUtils } from '../common/ast-utils.js';
 import { PluginLogger } from '../common/logger.js';
 import { DEFAULT_I18N_CONFIG, DEFAULT_EXCLUDE_PATTERNS } from './config.js';
+import { ValidatorRegistry, ValidationInput } from './validators/index.js';
 import type { 
   I18nExtractorConfig, 
   UntranslatedString, 
@@ -13,16 +14,19 @@ import type {
 } from './types.js';
 
 export class ASTAnalyzer {
-  private logger: PluginLogger;
   private config: I18nExtractorConfig;
+  private logger: PluginLogger;
+  private currentFile: string = '';
+  private validatorRegistry: ValidatorRegistry;
 
-  constructor(config: Partial<I18nExtractorConfig> = {}) {
-    this.logger = new PluginLogger('ast-analyzer');
+  constructor(config: I18nExtractorConfig) {
     this.config = {
       ...DEFAULT_I18N_CONFIG,
-      excludePatterns: DEFAULT_EXCLUDE_PATTERNS,
       ...config
     };
+    
+    this.logger = new PluginLogger('ast-analyzer');
+    this.validatorRegistry = new ValidatorRegistry();
   }
 
   /**
@@ -32,61 +36,149 @@ export class ASTAnalyzer {
     const untranslatedStrings: UntranslatedString[] = [];
 
     try {
+      // Clean implementation: Whitelist approach with modular validators
       ASTUtils.traverse(ast, {
-        // Analyze JSX text content
+        // VALIDATOR 1: JSX Text Content
         JSXText: (path: any) => {
           if (!this.config.analyzeJSXText) return;
 
           const text = path.node.value.trim();
-          if (this.isTranslatableString(text)) {
+          
+          const validationResult = this.validatorRegistry.validate({
+            text,
+            type: 'jsx-text',
+            context: {}
+          });
+
+          if (validationResult.isValid) {
             untranslatedStrings.push({
               text,
               type: 'jsx-text',
               line: path.node.loc?.start.line || 0,
               column: path.node.loc?.start.column || 0,
               context: this.getNodeContext(path),
-              isLikelyTranslatable: this.isLikelyTranslatable(text),
+              isLikelyTranslatable: true,
               suggestedKey: this.generateTranslationKey(text)
             });
           }
         },
 
-        // Analyze string literals
-        StringLiteral: (path: any) => {
-          if (!this.config.analyzeStringLiterals) return;
+        // VALIDATOR 2: User-facing JSX Attributes + VALIDATOR 6: Component Props
+        JSXAttribute: (path: any) => {
+          if (!this.config.analyzeJSXAttributes) return;
 
-          const text = path.node.value;
-          if (this.isTranslatableString(text) && !this.isInTranslationCall(path)) {
-            untranslatedStrings.push({
+          const attributeName = path.node.name?.name;
+          const attributeValue = path.node.value;
+          
+          // Only process string literal values (handle both Literal and StringLiteral types)
+          if ((attributeValue?.type === 'Literal' || attributeValue?.type === 'StringLiteral') && typeof attributeValue.value === 'string') {
+            const text = attributeValue.value.trim();
+            
+            // Determine if this is a component prop or HTML attribute
+            const isComponentProp = this.isComponentProp(path);
+            const validationType = isComponentProp ? 'component-prop' : 'jsx-attribute';
+            
+            const validationResult = this.validatorRegistry.validate({
               text,
-              type: 'string-literal',
-              line: path.node.loc?.start.line || 0,
-              column: path.node.loc?.start.column || 0,
-              context: this.getNodeContext(path),
-              isLikelyTranslatable: this.isLikelyTranslatable(text),
-              suggestedKey: this.generateTranslationKey(text)
+              type: validationType,
+              context: { attributeName }
             });
+
+            if (validationResult.isValid) {
+              untranslatedStrings.push({
+                text,
+                type: validationType,
+                line: path.node.loc?.start.line || 0,
+                column: path.node.loc?.start.column || 0,
+                context: isComponentProp ? `Component ${attributeName} prop` : `JSX ${attributeName} attribute`,
+                isLikelyTranslatable: true,
+                suggestedKey: this.generateTranslationKey(text)
+              });
+            }
           }
         },
 
-        // Analyze template literals
-        TemplateLiteral: (path: any) => {
+        // VALIDATOR 3: User Message Variables
+        VariableDeclarator: (path: any) => {
           if (!this.config.analyzeStringLiterals) return;
 
-          const text = path.node.quasis.map((q: any) => q.value.raw).join('${...}');
-          if (this.isTranslatableString(text) && !this.isInTranslationCall(path)) {
-            untranslatedStrings.push({
+          const variableName = path.node.id?.name;
+          const init = path.node.init;
+          
+          // Only process string literal initializers
+          if (variableName && (init?.type === 'Literal' || init?.type === 'StringLiteral') && typeof init.value === 'string') {
+            const text = init.value.trim();
+            
+            const validationResult = this.validatorRegistry.validate({
               text,
-              type: 'template-literal',
-              line: path.node.loc?.start.line || 0,
-              column: path.node.loc?.start.column || 0,
-              context: this.getNodeContext(path),
-              isLikelyTranslatable: this.isLikelyTranslatable(text),
-              suggestedKey: this.generateTranslationKey(text)
+              type: 'variable-declaration',
+              context: { variableName }
+            });
+
+            if (validationResult.isValid) {
+              untranslatedStrings.push({
+                text,
+                type: 'variable-declaration',
+                line: path.node.loc?.start.line || 0,
+                column: path.node.loc?.start.column || 0,
+                context: `Variable "${variableName}"`,
+                isLikelyTranslatable: true,
+                suggestedKey: this.generateTranslationKey(text)
+              });
+            }
+          }
+        },
+
+        // VALIDATOR 7: Alert/Console Messages for Users
+        CallExpression: (path: any) => {
+          if (!this.config.analyzeStringLiterals) return;
+
+          const callee = path.node.callee;
+          let functionName = '';
+
+          // Handle direct function calls: alert(), confirm(), etc.
+          if (callee?.type === 'Identifier') {
+            functionName = callee.name;
+          }
+          // Handle member expressions: console.log(), etc.
+          else if (callee?.type === 'MemberExpression' && callee.object?.name && callee.property?.name) {
+            functionName = `${callee.object.name}.${callee.property.name}`;
+          }
+
+          if (functionName) {
+            // Check each argument for string literals
+            path.node.arguments?.forEach((arg: any, index: number) => {
+              if ((arg?.type === 'Literal' || arg?.type === 'StringLiteral') && typeof arg.value === 'string') {
+                const text = arg.value.trim();
+                
+                const validationResult = this.validatorRegistry.validate({
+                  text,
+                  type: 'alert-message',
+                  context: { 
+                    parentContext: { 
+                      functionName,
+                      argumentIndex: index 
+                    } 
+                  }
+                });
+
+                if (validationResult.isValid) {
+                  untranslatedStrings.push({
+                    text,
+                    type: 'alert-message',
+                    line: path.node.loc?.start.line || 0,
+                    column: path.node.loc?.start.column || 0,
+                    context: `${functionName}() call`,
+                    isLikelyTranslatable: true,
+                    suggestedKey: this.generateTranslationKey(text)
+                  });
+                }
+              }
             });
           }
         }
       });
+
     } catch (error) {
       this.logger.error('Failed to analyze untranslated strings:', error);
     }
@@ -184,34 +276,18 @@ export class ASTAnalyzer {
   /**
    * Check if a string is potentially translatable
    */
-  private isTranslatableString(text: string): boolean {
-    // Length check
-    if (text.length < this.config.minStringLength!) return false;
-    
-    // Empty or whitespace only
-    if (!text.trim()) return false;
-    
-    // Exclude patterns check
-    for (const pattern of this.config.excludePatterns!) {
-      if (text.includes(pattern)) return false;
-    }
-    
-    // Exclude technical strings
-    if (/^[A-Z_]+$/.test(text)) return false; // Constants
-    if (/^\d+$/.test(text)) return false; // Numbers only
-    if (/^[a-f0-9]{6,}$/i.test(text)) return false; // Hex colors/hashes
-    
-    return true;
+  // ==========================================================================
+  // WHITELIST VALIDATORS - Now using modular validator system
+  // ==========================================================================
+
+  /**
+   * Get validator registry for external access
+   */
+  getValidatorRegistry(): ValidatorRegistry {
+    return this.validatorRegistry;
   }
 
   /**
-   * Check if a string is likely user-facing and should be translated
-   */
-  private isLikelyTranslatable(text: string): boolean {
-    // Contains letters (not just symbols/numbers)
-    if (!/[a-zA-Z]/.test(text)) return false;
-    
-    // Has reasonable length for user-facing text
     if (text.length < 2 || text.length > 200) return false;
     
     // Contains common words or sentence structure
@@ -229,20 +305,6 @@ export class ASTAnalyzer {
   /**
    * Check if a string is inside a translation function call
    */
-  private isInTranslationCall(path: any): boolean {
-    // Check if this string is inside a translation function call
-    let parent = path.parent;
-    while (parent) {
-      if (parent.type === 'CallExpression') {
-        const functionName = this.getCallExpressionName(parent);
-        if (this.config.translationFunctions!.includes(functionName)) {
-          return true;
-        }
-      }
-      parent = parent.parent;
-    }
-    return false;
-  }
 
   /**
    * Get the name of a function call
@@ -326,5 +388,20 @@ export class ASTAnalyzer {
       return `${parent.key?.name || parent.key?.value || 'unknown'}: `;
     }
     return '';
+  }
+
+  /**
+   * Determine if an attribute is a component prop vs HTML attribute
+   * Component props are on elements with capitalized names (React components)
+   */
+  private isComponentProp(path: any): boolean {
+    const jsxElement = path.findParent((parent: any) => parent.isJSXElement());
+    if (!jsxElement) return false;
+
+    const elementName = jsxElement.node.openingElement?.name?.name;
+    if (!elementName || typeof elementName !== 'string') return false;
+
+    // Component names start with uppercase letter
+    return /^[A-Z]/.test(elementName);
   }
 }

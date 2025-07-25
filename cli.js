@@ -236,11 +236,41 @@ async function runAll(pluginManager, projectPath) {
 }
 
 /**
- * Execute a plugin command
+ * Execute a plugin command with enhanced path targeting
  */
 async function executePluginCommand(pluginManager, command, projectPath, options) {
   try {
-    const result = await pluginManager.executePlugin(command, projectPath, { options });
+    // Check for target path option
+    const targetPathOption = options.find(opt => opt.startsWith('--path=') || opt.startsWith('--target='));
+    let targetPath = projectPath;
+    
+    if (targetPathOption) {
+      const specifiedPath = targetPathOption.split('=')[1];
+      
+      // Handle relative paths from project root
+      if (!path.isAbsolute(specifiedPath)) {
+        targetPath = path.resolve(projectPath, specifiedPath);
+      } else {
+        targetPath = specifiedPath;
+      }
+      
+      // Validate target path exists
+      if (!fs.existsSync(targetPath)) {
+        console.error(`❌ Error: Target path does not exist: ${targetPath}`);
+        console.error(`   Relative to project: ${path.relative(projectPath, targetPath)}`);
+        process.exit(1);
+      }
+      
+      // Show what we're targeting
+      const relativePath = path.relative(projectPath, targetPath);
+      if (relativePath) {
+        console.log(`🎯 Targeting: ${relativePath || '.'}`);
+        console.log(`📂 Full path: ${targetPath}`);
+        console.log('');
+      }
+    }
+    
+    const result = await pluginManager.executePlugin(command, targetPath, { options });
     
     if (result.success) {
       // Format output based on options

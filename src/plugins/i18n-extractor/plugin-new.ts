@@ -41,9 +41,20 @@ export class I18nExtractorPlugin extends BaseExtractor<I18nAnalysisResult, I18nE
       cli: {
         command: 'i18n',
         description: 'Analyze i18n patterns and missing translations',
-        usage: 'node cli.js [project-path] i18n [options]',
+        usage: 'node cli.js [project-path] i18n [options]\n       Examples:\n         node cli.js . i18n --path=src/components\n         node cli.js myapp i18n --target=pages\n         node cli.js . i18n --path=src/components/Button.jsx',
         category: 'analysis',
         options: [
+          {
+            name: '--path',
+            description: 'Target specific directory or file (relative to project root)',
+            type: 'string',
+            default: '.'
+          },
+          {
+            name: '--target',
+            description: 'Alias for --path (target specific directory or file)',
+            type: 'string'
+          },
           {
             name: '--functions',
             description: 'Translation function names to detect (comma-separated)',
@@ -233,8 +244,10 @@ export class I18nExtractorPlugin extends BaseExtractor<I18nAnalysisResult, I18nE
     this.logger.info('📊 Processing analysis results...');
     const summary = await this.resultProcessor.aggregateResults(results, translationFileAnalysis);
 
-    // Log a quick summary
-    this.logger.info('\n' + this.resultProcessor.generateQuickSummary(summary));
+    // Only log quick summary if not in CLI mode (to avoid interfering with JSON output)
+    if (!process.argv.some(arg => arg.includes('--format=json'))) {
+      this.logger.info('\n' + this.resultProcessor.generateQuickSummary(summary));
+    }
 
     return summary;
   }

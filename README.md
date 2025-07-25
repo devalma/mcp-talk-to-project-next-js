@@ -45,12 +45,16 @@ A Model Context Protocol (MCP) server that provides comprehensive analysis of Ne
 - **Custom Pattern Matching**: Target specific patterns with flexible filtering
 
 ### 🌍 i18n Translation Analysis
+- **Advanced Validator System**: 7 specialized validators for accurate string detection
+- **Smart Detection**: JSX text, attributes, component props, variables, object properties, form validation, and alert messages
+- **False Positive Prevention**: Whitelist-based approach prevents technical strings from being flagged
 - **Project Language Detection**: Automatically detect available languages from directory structure and config files
-- **Translation Coverage**: Find strings that need translation wrapping
+- **Translation Coverage**: Find strings that need translation wrapping with detailed categorization
 - **Missing Translation Keys**: Identify missing keys across language files
 - **Translation File Analysis**: Analyze JSON translation files for completeness
 - **Multi-Language Support**: Support for complex i18n setups with multiple locales
-- **Modular Architecture**: Clean separation of concerns with dedicated modules for language detection, AST analysis, and result processing
+- **Path Targeting**: Analyze specific directories or files for focused translation work
+- **Modular Architecture**: Clean separation of concerns with dedicated validator modules
 
 ## 🛠️ Available Tools
 
@@ -225,12 +229,12 @@ Get help information about available commands and usage.
 **Returns:** Comprehensive help documentation and usage examples
 
 ### `analyze_i18n`
-Comprehensive internationalization (i18n) analysis for translation management.
+Comprehensive internationalization (i18n) analysis with advanced validator system for accurate translation detection.
 
 **Parameters:**
 ```json
 {
-  "path": "string (optional) - Directory path to analyze (default: project root)",
+  "path": "string (optional) - Directory or file path to analyze (default: project root)",
   "format": "text|markdown|json - Output format (default: text)",
   "mode": "all|specific|detailed - Analysis depth (default: all)",
   "languages": "string[] (optional) - Specific languages to analyze (auto-detected if not provided)",
@@ -240,26 +244,37 @@ Comprehensive internationalization (i18n) analysis for translation management.
 }
 ```
 
-**Features:**
-- **Automatic Language Detection**: Detects languages from directory structure, config files, and translation files
-- **Untranslated String Detection**: Finds hardcoded strings that should be wrapped for translation
-- **Missing Key Analysis**: Identifies translation keys missing from language files
-- **Translation Coverage**: Shows completeness across all detected languages
-- **Modular Analysis**: Uses dedicated modules for language detection, AST parsing, and result processing
+**Advanced Validator System:**
+- **Validator 1**: JSX Text Content (HIGH) - Direct text in JSX elements
+- **Validator 2**: User-facing JSX Attributes (HIGH) - alt, title, placeholder, label attributes
+- **Validator 3**: User Message Variables (HIGH) - Variables with semantic names like *Message, *Text, *Label
+- **Validator 4**: User-facing Object Properties (MEDIUM) - Object properties like {message: "text", title: "text"}
+- **Validator 5**: Form Validation Messages (MEDIUM) - Validation error and success messages
+- **Validator 6**: Component Props (MEDIUM) - Props passed to React components (title, message, confirmText, etc.)
+- **Validator 7**: Alert Messages (MEDIUM) - User-facing alert(), confirm(), prompt() calls (excludes console.log)
+
+**Smart Detection Features:**
+- **Whitelist Approach**: Only flags known user-facing patterns, preventing false positives
+- **Component vs HTML Distinction**: Differentiates between component props and HTML attributes
+- **Technical String Filtering**: Ignores technical identifiers, CSS classes, API endpoints, debug messages
+- **Path Targeting**: Focus analysis on specific directories or files
 
 **Examples:**
 ```json
-// Full i18n analysis with auto-detected languages
-{"mode": "all"}
+// Full project analysis with all validators
+{"mode": "all", "format": "json"}
 
-// Analyze specific language files
-{"mode": "specific", "languages": ["en", "es", "uk"]}
+// Analyze specific directory only
+{"path": "src/components", "mode": "detailed"}
 
-// Detailed analysis of components only
-{"mode": "detailed", "filePattern": "src/components/**", "format": "markdown"}
+// Target single file for focused analysis
+{"path": "src/pages/dashboard.tsx", "format": "text"}
 
-// Focus on untranslated strings only
-{"includeUntranslated": true, "includeMissing": false}
+// Focus on high-priority validators only
+{"mode": "specific", "includeUntranslated": true, "format": "markdown"}
+
+// Component-focused analysis
+{"path": "src/components", "filePattern": "**/*.tsx", "format": "json"}
 ```
 
 ---
@@ -393,15 +408,25 @@ npx mcp-talk-to-project-next-js /path/to/your/nextjs/project
 
 ### Option 3: Standalone CLI Usage
 
-Test the analyzer directly from command line:
+Test the analyzer directly from command line with support for path targeting:
 
 ```bash
-# Analyze your project
+# Analyze entire project
 export NEXTJS_PROJECT_PATH="/path/to/your/nextjs/project"
 npm run cli analyze components
 
-# Or use the demo project
+# Analyze specific directory
+node cli.js /path/to/project/src/components i18n --format=json
+
+# Analyze single file  
+node cli.js /path/to/project/src/pages/dashboard.tsx i18n --format=text
+
+# Focus on specific areas
+node cli.js /path/to/project/src/features/auth i18n --path=components
+
+# Use the demo project for testing
 npm run test
+node cli.js demo-project i18n --format=json
 ```
 
 ### Testing

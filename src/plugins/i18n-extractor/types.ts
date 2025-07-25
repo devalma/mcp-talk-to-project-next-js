@@ -14,6 +14,8 @@ export interface I18nExtractorConfig extends ExtractorConfig {
   minStringLength?: number;
   /** Include JSX text content analysis (default: true) */
   analyzeJSXText?: boolean;
+  /** Include JSX attribute analysis (default: true) */
+  analyzeJSXAttributes?: boolean;
   /** Include string literals analysis (default: true) */
   analyzeStringLiterals?: boolean;
   /** Translation file patterns to check */
@@ -27,7 +29,7 @@ export interface I18nExtractorConfig extends ExtractorConfig {
 // Result types for i18n extraction
 export interface UntranslatedString {
   text: string;
-  type: 'jsx-text' | 'string-literal' | 'template-literal';
+  type: 'jsx-text' | 'jsx-attribute' | 'variable-declaration' | 'string-literal' | 'template-literal' | 'object-property' | 'form-validation' | 'component-prop' | 'alert-message';
   line: number;
   column: number;
   context?: string; // surrounding code context

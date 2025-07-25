@@ -9,6 +9,7 @@ export const DEFAULT_I18N_CONFIG: Omit<I18nExtractorConfig, 'filePatterns' | 'ex
   translationPatterns: ['t(', '{{', '{t(', 'translate('],
   minStringLength: 3,
   analyzeJSXText: true,
+  analyzeJSXAttributes: true,
   analyzeStringLiterals: true,
   translationFilePatterns: [
     '**/src/locales/**/*.json',

@@ -78,44 +78,50 @@ export const analyzeI18nTool: ToolDefinition = {
         return createErrorResponse('I18n extractor plugin not found. Make sure it is properly registered.');
       }
 
-      // Build configuration from arguments
-      const config: any = {};
+      // Build configuration from arguments and apply to existing plugin
+      const configUpdate: any = {};
       
       if (validatedArgs.functions) {
-        config.translationFunctions = validatedArgs.functions.split(',').map(f => f.trim());
+        configUpdate.translationFunctions = validatedArgs.functions.split(',').map(f => f.trim());
       }
       
       if (validatedArgs.minLength !== undefined) {
-        config.minStringLength = validatedArgs.minLength;
+        configUpdate.minStringLength = validatedArgs.minLength;
       }
       
       if (validatedArgs.languages) {
-        config.languages = validatedArgs.languages.split(',').map(l => l.trim());
+        configUpdate.languages = validatedArgs.languages.split(',').map(l => l.trim());
       }
       
       if (validatedArgs.jsxText !== undefined) {
-        config.analyzeJSXText = validatedArgs.jsxText;
+        configUpdate.analyzeJSXText = validatedArgs.jsxText;
       }
       
       if (validatedArgs.stringLiterals !== undefined) {
-        config.analyzeStringLiterals = validatedArgs.stringLiterals;
+        configUpdate.analyzeStringLiterals = validatedArgs.stringLiterals;
       }
 
-      // Create a new plugin instance with the configuration
-      const { I18nExtractorPlugin } = await import('../plugins/i18n-extractor/index.js');
-      const configuredPlugin = new I18nExtractorPlugin(config);
+      // Execute the plugin using plugin manager (same as CLI)
+      const result = await pluginManager.executePlugin('i18n-extractor', targetPath);
       
-      // Execute the plugin
-      const result = await configuredPlugin.extract(targetPath);
-      
-      if (!result.success || !result.data) {
-        return createErrorResponse('No i18n analysis data found or extraction failed.');
+      if (!result.success) {
+        const errorMessage = result.errors?.join(', ') || 'Unknown extraction error';
+        return createErrorResponse(`I18n analysis failed: ${errorMessage}`);
+      }
+
+      if (!result.data) {
+        return createErrorResponse('No i18n analysis data returned from plugin');
       }
 
       // Use the plugin's formatter with user-specified format
-      const formattedText = configuredPlugin.formatData 
-        ? configuredPlugin.formatData(result.data, format) 
-        : JSON.stringify(result.data, null, 2);
+      let formattedText: string;
+      try {
+        formattedText = plugin.formatData 
+          ? plugin.formatData(result.data, format) 
+          : JSON.stringify(result.data, null, 2);
+      } catch (formatError) {
+        return createErrorResponse(`Error formatting result: ${formatError instanceof Error ? formatError.message : String(formatError)}`);
+      }
 
       return createTextResponse(formattedText);
     } catch (error) {

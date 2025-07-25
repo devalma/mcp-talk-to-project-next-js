@@ -10,6 +10,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Preparing for next release
 
+## [1.2.0] - 2025-07-25
+
+### Added
+- 🎯 **Advanced 7-Validator i18n System** - Complete rewrite with specialized validators
+  - **Validator 1**: JSX Text Content (HIGH) - Direct text in JSX elements
+  - **Validator 2**: User-facing JSX Attributes (HIGH) - alt, title, placeholder, label attributes  
+  - **Validator 3**: User Message Variables (HIGH) - Variables with semantic names (*Message, *Text, *Label)
+  - **Validator 4**: User-facing Object Properties (MEDIUM) - Object properties with semantic keys
+  - **Validator 5**: Form Validation Messages (MEDIUM) - Validation error and success messages
+  - **Validator 6**: Component Props (MEDIUM) - Props passed to React components vs HTML attributes
+  - **Validator 7**: Alert Messages (MEDIUM) - User-facing alert(), confirm(), prompt() (excludes console.log)
+
+- 🔍 **Smart Detection Features**
+  - Whitelist-based approach prevents false positives from technical strings
+  - Component vs HTML element distinction for accurate prop/attribute classification
+  - Technical string filtering (CSS classes, API endpoints, debug messages, paths)
+  - Natural language pattern detection with content validation
+  - Zero false positives for technical identifiers like "react", "primary", "hovered"
+
+- 🎯 **Path Targeting Capability**
+  - Analyze specific directories: `node cli.js /path/to/project/src/components i18n`
+  - Single file analysis: `node cli.js /path/to/project/file.tsx i18n`
+  - Focused analysis for large projects with `--path` option
+  - CLI enhancements for targeted translation work
+
+- 🏗️ **Modular Validator Architecture**
+  - Separate validator files under `src/plugins/i18n-extractor/validators/`
+  - BaseValidator abstract class with consistent interface
+  - ValidatorRegistry for centralized management
+  - Easy to extend with additional validators
+
+- 📊 **Enhanced Output & Reporting**
+  - Detailed categorization by validator type (jsx-text, component-prop, alert-message, etc.)
+  - Priority-based recommendations (HIGH/MEDIUM priority)
+  - JSON output format with complete metadata
+  - Comprehensive documentation with examples
+
+### Improved  
+- **False Positive Prevention**: Eliminated detection of technical strings through sophisticated whitelist approach
+- **Component Detection**: Smart distinction between React component props and HTML attributes
+- **Performance**: Modular architecture improves maintainability and performance
+- **Documentation**: Complete validator system documentation with examples and usage patterns
+
+### Technical
+- Modular validator system with registry pattern
+- Enhanced AST analysis with context-aware detection
+- Comprehensive test coverage with demo files for each validator
+- Clean separation of concerns between validation logic and AST traversal
+
 ## [1.1.0] - 2025-07-25
 
 ### Added
