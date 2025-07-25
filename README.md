@@ -40,7 +40,8 @@ Add to your Claude Desktop configuration:
 {
   "mcpServers": {
     "nextjs-analyzer": {
-      "command": "mcp-nextjs-analyzer",
+      "command": "npx",
+      "args": ["mcp-talk-to-project-next-js"],
       "env": {
         "NEXTJS_PROJECT_PATH": "/path/to/your/nextjs/project"
       }
