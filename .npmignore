@@ -1,0 +1,40 @@
+# Development files
+src/
+tsconfig.json
+test.js
+*.log
+
+# Demo files
+demo-project/
+demo-outputs.js
+demo.js
+
+# Git files
+.git/
+.gitignore
+
+# Documentation (include in package)
+# docs/
+# README.md
+# CHANGELOG.md
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Node modules (handled by npm automatically)
+node_modules/
+
+# Build artifacts (we want dist/ in the package)
+# dist/ - keep this for the published package
+
+# Development configs
+.env
+.env.local
+.env.*.local

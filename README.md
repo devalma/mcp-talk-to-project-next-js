@@ -1,8 +1,53 @@
-Note: this is proof of concept and WIP. It tested on a limited set of projects and may have lack of flexibility
-
 # Next.js Project Analyzer MCP Server
 
-A Model Context Protocol (MCP) server that provides comprehensive analysis of Next.js projects using Abstract Syntax Tree (AST) parsing. This server enables AI assistants to understand Next.js codebases by extracting detailed information about components, hooks, pages, features, and architectural patterns with flexible analysis modes.
+[![npm version](https://badge.fury.io/js/mcp-talk-to-project-next-js.svg)](https://badge.fury.io/js/mcp-talk-to-project-next-js)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+A Model Context Protocol (MCP) server that provides comprehensive analysis of Next.js projects using Abstract Syntax Tree (AST) parsing. This server enables AI assistants to understand Next.js codebases by extracting detailed information about components, hooks, pages, features, and architectural patterns with **advanced i18n translation detection**.
+
+## 🚀 Quick Start
+
+### Installation
+
+```bash
+# Install globally
+npm install -g mcp-talk-to-project-next-js
+
+# Or install locally
+npm install mcp-talk-to-project-next-js
+```
+
+### CLI Usage
+
+```bash
+# Analyze entire project for translations
+nextjs-i18n /path/to/your/nextjs/project i18n --format=json
+
+# Focus on specific directory
+nextjs-i18n /path/to/project/src/components i18n --format=text
+
+# Single file analysis
+nextjs-i18n /path/to/project/src/pages/dashboard.tsx i18n
+
+# Get help
+nextjs-i18n --help
+```
+
+### MCP Server Usage
+
+Add to your Claude Desktop configuration:
+```json
+{
+  "mcpServers": {
+    "nextjs-analyzer": {
+      "command": "mcp-nextjs-analyzer",
+      "env": {
+        "NEXTJS_PROJECT_PATH": "/path/to/your/nextjs/project"
+      }
+    }
+  }
+}
+```
 
 ## 🚀 Key Features
 

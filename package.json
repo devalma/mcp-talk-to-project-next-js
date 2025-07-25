@@ -1,10 +1,11 @@
 {
   "name": "mcp-talk-to-project-next-js",
-  "version": "1.1.0",
-  "description": "A Model Context Protocol (MCP) server that provides structured information about Next.js projects using Abstract Syntax Tree (AST) parsing",
+  "version": "1.2.0",
+  "description": "Advanced Model Context Protocol (MCP) server for Next.js project analysis with comprehensive i18n translation detection using 7 specialized validators",
   "main": "dist/index.js",
   "bin": {
-    "mcp-talk-to-project-next-js": "dist/index.js"
+    "mcp-nextjs-analyzer": "dist/index.js",
+    "nextjs-i18n": "cli.js"
   },
   "type": "module",
   "scripts": {
@@ -23,10 +24,28 @@
     "nextjs",
     "react",
     "ast",
-    "code-analysis"
+    "code-analysis",
+    "i18n",
+    "internationalization",
+    "translation",
+    "jsx",
+    "typescript",
+    "babel",
+    "static-analysis",
+    "validator",
+    "claude",
+    "ai"
   ],
-  "author": "",
+  "author": "Pavlo Makhrynskyi <gumanistius@gmail.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/devalma/mcp-talk-to-project-next-js.git"
+  },
+  "homepage": "https://github.com/devalma/mcp-talk-to-project-next-js#readme",
+  "bugs": {
+    "url": "https://github.com/devalma/mcp-talk-to-project-next-js/issues"
+  },
   "dependencies": {
     "@babel/parser": "^7.23.6",
     "@babel/traverse": "^7.23.6",
