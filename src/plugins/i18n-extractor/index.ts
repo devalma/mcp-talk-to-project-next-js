@@ -3,7 +3,7 @@
  */
 
 // Main plugin class
-export { I18nExtractorPlugin } from './plugin-new.js';
+export { I18nExtractorPlugin } from './plugin.js';
 
 // Modular components (can be used independently)
 export { LanguageDetector } from './language-detector.js';
@@ -30,7 +30,7 @@ export type {
 export { I18nFormatter, type I18nFormat } from './formatter.js';
 
 // Plugin factory function
-import { I18nExtractorPlugin } from './plugin-new.js';
+import { I18nExtractorPlugin } from './plugin.js';
 import type { I18nExtractorConfig } from './types.js';
 
 export function createI18nExtractorPlugin(config?: I18nExtractorConfig) {
