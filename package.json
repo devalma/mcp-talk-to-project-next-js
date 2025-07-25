@@ -1,6 +1,6 @@
 {
   "name": "mcp-talk-to-project-next-js",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Advanced Model Context Protocol (MCP) server for Next.js project analysis with comprehensive i18n translation detection using 7 specialized validators",
   "main": "dist/index.js",
   "bin": {
