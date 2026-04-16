@@ -21,6 +21,12 @@ import { glob } from 'glob';
 import { parse } from '@babel/parser';
 import type { ToolDefinition, ToolContext } from './types.js';
 import { createTextResponse, createErrorResponse } from './types.js';
+import {
+  readTsconfigPaths,
+  resolveImportSource,
+  toProjectRelative,
+  type TsconfigAlias,
+} from './shared/module-resolver.js';
 
 const ArgsSchema = z.object({
   symbol: z.string().min(1),
@@ -379,37 +385,7 @@ function dedupeByPosition<T extends { line: number; column: number; kind: RefKin
   return out;
 }
 
-// ---------- resolution helpers (shared logic with analyze-imports) ----------
-
-interface TsconfigAlias {
-  prefix: string;
-  targets: string[];
-}
-
-function readTsconfigPaths(projectPath: string): TsconfigAlias[] {
-  const aliases: TsconfigAlias[] = [];
-  const tsconfigPath = path.join(projectPath, 'tsconfig.json');
-  if (!fs.existsSync(tsconfigPath)) return aliases;
-  let tsconfig: any;
-  try {
-    const raw = fs.readFileSync(tsconfigPath, 'utf-8');
-    tsconfig = JSON.parse(
-      raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
-    );
-  } catch {
-    return aliases;
-  }
-  const baseUrl: string = tsconfig.compilerOptions?.baseUrl || '.';
-  const paths: Record<string, string[]> = tsconfig.compilerOptions?.paths || {};
-  const baseAbs = path.resolve(projectPath, baseUrl);
-  for (const [pattern, targets] of Object.entries(paths)) {
-    aliases.push({
-      prefix: pattern.replace(/\*$/, ''),
-      targets: (targets as string[]).map((t) => path.resolve(baseAbs, t.replace(/\*$/, ''))),
-    });
-  }
-  return aliases;
-}
+// ---------- resolution helpers ----------
 
 function resolvesTo(
   source: string,
@@ -421,85 +397,6 @@ function resolvesTo(
   const resolved = resolveImportSource(source, fromAbsFile, projectPath, aliases);
   if (!resolved) return false;
   return path.resolve(projectPath, resolved) === path.resolve(targetAbsFile);
-}
-
-const CANDIDATE_EXTS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
-
-function resolveImportSource(
-  source: string,
-  fromAbsFile: string,
-  projectPath: string,
-  aliases: TsconfigAlias[]
-): string | null {
-  let basedir: string | null = null;
-  let rest: string | null = null;
-
-  if (source.startsWith('.') || source.startsWith('/')) {
-    basedir = path.dirname(fromAbsFile);
-    rest = source;
-  } else {
-    for (const a of aliases) {
-      if (source === a.prefix.replace(/\/$/, '') || source.startsWith(a.prefix)) {
-        const remainder = source.slice(a.prefix.length) || '.';
-        for (const target of a.targets) {
-          basedir = target;
-          rest = remainder;
-          break;
-        }
-        if (basedir) break;
-      }
-    }
-  }
-
-  if (basedir === null || rest === null) return null;
-  const base = rest.startsWith('/') ? rest : path.resolve(basedir, rest);
-
-  if (/\.[jt]sx?$|\.mjs$|\.cjs$/.test(base) && isFile(base)) {
-    return toProjectRelative(base, projectPath);
-  }
-
-  const jsExtMatch = /\.(jsx?|mjs|cjs)$/.exec(base);
-  if (jsExtMatch) {
-    const withoutExt = base.slice(0, -jsExtMatch[0].length);
-    const tsCandidates =
-      jsExtMatch[1] === 'jsx' ? ['.tsx', '.jsx'] : ['.ts', '.tsx', '.js', '.jsx'];
-    for (const ext of tsCandidates) {
-      const candidate = withoutExt + ext;
-      if (isFile(candidate)) return toProjectRelative(candidate, projectPath);
-    }
-  }
-
-  for (const ext of CANDIDATE_EXTS) {
-    const candidate = base + ext;
-    if (isFile(candidate)) return toProjectRelative(candidate, projectPath);
-  }
-  if (isDir(base)) {
-    for (const ext of CANDIDATE_EXTS) {
-      const candidate = path.join(base, 'index' + ext);
-      if (isFile(candidate)) return toProjectRelative(candidate, projectPath);
-    }
-  }
-  return null;
-}
-
-function isFile(p: string): boolean {
-  try {
-    return fs.statSync(p).isFile();
-  } catch {
-    return false;
-  }
-}
-
-function isDir(p: string): boolean {
-  try {
-    return fs.statSync(p).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-function toProjectRelative(absPath: string, projectPath: string): string {
-  return path.relative(projectPath, absPath).replace(/\\/g, '/');
 }
 
 function resolveInputPath(projectPath: string, fileArg: string): string {

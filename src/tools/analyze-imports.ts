@@ -21,6 +21,13 @@ import { glob } from 'glob';
 import { parse } from '@babel/parser';
 import type { ToolDefinition, ToolContext } from './types.js';
 import { createTextResponse, createErrorResponse } from './types.js';
+import {
+  readTsconfigPaths,
+  resolveImportSource,
+  isExternalPackage,
+  toProjectRelative,
+  type TsconfigAlias,
+} from './shared/module-resolver.js';
 
 const ArgsSchema = z.object({
   file: z.string(),
@@ -296,154 +303,6 @@ function categorizeOutgoing(
   }
 
   return { local, external, unresolved };
-}
-
-function isExternalPackage(source: string, aliases: TsconfigAlias[]): boolean {
-  if (source.startsWith('.') || source.startsWith('/')) return false;
-  for (const a of aliases) if (matchesAlias(source, a.prefix)) return false;
-  return true;
-}
-
-const CANDIDATE_EXTS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
-
-function resolveImportSource(
-  source: string,
-  fromAbsFile: string,
-  projectPath: string,
-  aliases: TsconfigAlias[]
-): string | null {
-  let basedir: string | null = null;
-  let rest: string | null = null;
-
-  if (source.startsWith('.') || source.startsWith('/')) {
-    basedir = path.dirname(fromAbsFile);
-    rest = source;
-  } else {
-    for (const a of aliases) {
-      const mapped = applyAlias(source, a, projectPath);
-      if (mapped) {
-        const [alias_basedir, alias_rest] = mapped;
-        basedir = alias_basedir;
-        rest = alias_rest;
-        break;
-      }
-    }
-  }
-
-  if (basedir === null || rest === null) return null;
-
-  const base = rest.startsWith('/') ? rest : path.resolve(basedir, rest);
-
-  // Direct file with existing extension
-  if (/\.[jt]sx?$|\.mjs$|\.cjs$/.test(base) && fs.existsSync(base) && fs.statSync(base).isFile()) {
-    return toProjectRelative(base, projectPath);
-  }
-
-  // TS-ESM/NodeNext: imports like './foo.js' map to './foo.ts' on disk.
-  // If the base has a .js/.jsx/.mjs/.cjs extension but the file isn't there,
-  // try the equivalent TS sources.
-  const jsExtMatch = /\.(jsx?|mjs|cjs)$/.exec(base);
-  if (jsExtMatch) {
-    const withoutExt = base.slice(0, -jsExtMatch[0].length);
-    const tsCandidates =
-      jsExtMatch[1] === 'jsx' ? ['.tsx', '.jsx'] : ['.ts', '.tsx', '.js', '.jsx'];
-    for (const ext of tsCandidates) {
-      const candidate = withoutExt + ext;
-      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-        return toProjectRelative(candidate, projectPath);
-      }
-    }
-  }
-
-  // Try adding extensions
-  for (const ext of CANDIDATE_EXTS) {
-    const candidate = base + ext;
-    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-      return toProjectRelative(candidate, projectPath);
-    }
-  }
-
-  // Try index file inside directory
-  if (fs.existsSync(base) && fs.statSync(base).isDirectory()) {
-    for (const ext of CANDIDATE_EXTS) {
-      const candidate = path.join(base, 'index' + ext);
-      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-        return toProjectRelative(candidate, projectPath);
-      }
-    }
-  }
-
-  return null;
-}
-
-function toProjectRelative(absPath: string, projectPath: string): string {
-  return path.relative(projectPath, absPath).replace(/\\/g, '/');
-}
-
-// ---------- tsconfig paths ----------
-
-interface TsconfigAlias {
-  prefix: string; // e.g. "@/"
-  targets: string[]; // absolute dirs/files the prefix maps to
-}
-
-function readTsconfigPaths(projectPath: string): TsconfigAlias[] {
-  const aliases: TsconfigAlias[] = [];
-  const tsconfigPath = path.join(projectPath, 'tsconfig.json');
-  if (!fs.existsSync(tsconfigPath)) return aliases;
-
-  let tsconfig: any;
-  try {
-    const raw = fs.readFileSync(tsconfigPath, 'utf-8');
-    tsconfig = JSON.parse(stripJsonComments(raw));
-  } catch {
-    return aliases;
-  }
-
-  const baseUrl: string = tsconfig.compilerOptions?.baseUrl || '.';
-  const paths: Record<string, string[]> = tsconfig.compilerOptions?.paths || {};
-  const baseAbs = path.resolve(projectPath, baseUrl);
-
-  for (const [pattern, targets] of Object.entries(paths)) {
-    const prefix = pattern.replace(/\*$/, '');
-    const targetPrefixes = (targets as string[]).map((t) =>
-      path.resolve(baseAbs, t.replace(/\*$/, ''))
-    );
-    aliases.push({ prefix, targets: targetPrefixes });
-  }
-
-  return aliases;
-}
-
-function stripJsonComments(raw: string): string {
-  // Minimal: strip // and /* */ comments. Tsconfig commonly uses them.
-  return raw
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^\s*\/\/.*$/gm, '');
-}
-
-function matchesAlias(source: string, prefix: string): boolean {
-  return source === prefix.replace(/\/$/, '') || source.startsWith(prefix);
-}
-
-function applyAlias(
-  source: string,
-  alias: TsconfigAlias,
-  projectPath: string
-): [string, string] | null {
-  if (!matchesAlias(source, alias.prefix)) return null;
-  const remainder = source.slice(alias.prefix.length);
-  for (const target of alias.targets) {
-    if (fs.existsSync(target) || fs.existsSync(path.dirname(target))) {
-      return [target, remainder || '.'];
-    }
-  }
-  // Even if the target dir doesn't exist yet, use the first target so resolution
-  // still tries (and will fail gracefully → unresolved).
-  if (alias.targets.length > 0) {
-    return [alias.targets[0], remainder || '.'];
-  }
-  return null;
 }
 
 // ---------- incoming scan ----------

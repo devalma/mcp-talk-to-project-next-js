@@ -28,6 +28,11 @@ import path from 'node:path';
 import { parse } from '@babel/parser';
 import type { ToolDefinition, ToolContext } from './types.js';
 import { createTextResponse, createErrorResponse } from './types.js';
+import {
+  readTsconfigPaths,
+  resolveImportSource,
+  toProjectRelative,
+} from './shared/module-resolver.js';
 
 const ArgsSchema = z.object({
   component: z.string().min(1),
@@ -41,7 +46,9 @@ export type PropsTypeSource =
   | 'inline'
   | 'local-interface'
   | 'local-type'
-  | 'imported'
+  | 'imported-interface'
+  | 'imported-type'
+  | 'imported-unresolved'
   | 'unresolved';
 
 export interface PropInfo {
@@ -54,9 +61,10 @@ export interface ComponentPropsResult {
   name: string;
   file: string;
   found: boolean;
-  componentKind: 'function' | 'arrow' | 'unknown' | null;
+  componentKind: 'function' | 'arrow' | 'class' | 'unknown' | null;
   propsTypeSource: PropsTypeSource | null;
   propsTypeName: string | null;
+  propsTypeFile: string | null;
   props: PropInfo[];
   notes: string[];
 }
@@ -127,6 +135,7 @@ export function getComponentProps(
     componentKind: null,
     propsTypeSource: null,
     propsTypeName: null,
+    propsTypeFile: null,
     props: [],
     notes: [note],
   });
@@ -140,6 +149,25 @@ export function getComponentProps(
   const found = findComponent(ast, component);
   if (!found) return notFound(`Component "${component}" not found in ${relFile}`);
 
+  // Class component: extract the generic argument of `extends React.Component<Props>`
+  if (found.kind === 'class') {
+    const typeArg = classPropsType(found.fn);
+    if (!typeArg) {
+      return {
+        name: component,
+        file: relFile,
+        found: true,
+        componentKind: 'class',
+        propsTypeSource: null,
+        propsTypeName: null,
+        propsTypeFile: null,
+        props: [],
+        notes: ['Class component has no props type argument on its extends clause'],
+      };
+    }
+    return extractPropsFromType(typeArg, ast, content, relFile, component, 'class', absFile, projectPath);
+  }
+
   const propsParam = firstParamOf(found.fn);
   if (!propsParam) {
     return {
@@ -149,6 +177,7 @@ export function getComponentProps(
       componentKind: found.kind,
       propsTypeSource: null,
       propsTypeName: null,
+      propsTypeFile: null,
       props: [],
       notes: ['Component takes no parameter'],
     };
@@ -163,19 +192,29 @@ export function getComponentProps(
       componentKind: found.kind,
       propsTypeSource: null,
       propsTypeName: null,
+      propsTypeFile: null,
       props: [],
       notes: ['Props parameter has no type annotation'],
     };
   }
 
-  return extractPropsFromType(typeAnnotation, ast, content, relFile, component, found.kind);
+  return extractPropsFromType(
+    typeAnnotation,
+    ast,
+    content,
+    relFile,
+    component,
+    found.kind,
+    absFile,
+    projectPath
+  );
 }
 
 // ---------- component discovery ----------
 
 interface FoundComponent {
-  fn: any; // FunctionDeclaration | FunctionExpression | ArrowFunctionExpression
-  kind: 'function' | 'arrow' | 'unknown';
+  fn: any; // FunctionDeclaration | FunctionExpression | ArrowFunctionExpression | ClassDeclaration
+  kind: 'function' | 'arrow' | 'class' | 'unknown';
 }
 
 function findComponent(ast: any, name: string): FoundComponent | null {
@@ -184,26 +223,50 @@ function findComponent(ast: any, name: string): FoundComponent | null {
     if (node.type === 'FunctionDeclaration' && node.id?.name === name) {
       return { fn: node, kind: 'function' };
     }
-    // export function Button(...) {}
-    if (node.type === 'ExportNamedDeclaration' && node.declaration?.type === 'FunctionDeclaration' && node.declaration.id?.name === name) {
-      return { fn: node.declaration, kind: 'function' };
+    // class Button extends React.Component {}
+    if (node.type === 'ClassDeclaration' && node.id?.name === name) {
+      return { fn: node, kind: 'class' };
     }
-    // export default function Button(...) {}
-    if (node.type === 'ExportDefaultDeclaration' && node.declaration?.type === 'FunctionDeclaration' && node.declaration.id?.name === name) {
-      return { fn: node.declaration, kind: 'function' };
+    if (node.type === 'ExportNamedDeclaration' && node.declaration) {
+      if (node.declaration.type === 'FunctionDeclaration' && node.declaration.id?.name === name) {
+        return { fn: node.declaration, kind: 'function' };
+      }
+      if (node.declaration.type === 'ClassDeclaration' && node.declaration.id?.name === name) {
+        return { fn: node.declaration, kind: 'class' };
+      }
+      if (node.declaration.type === 'VariableDeclaration') {
+        const match = findComponentInVariableDecl(node.declaration, name);
+        if (match) return match;
+      }
     }
-    // const Button = (props: Props) => {}   /   const Button = function(props: Props) {}
+    if (node.type === 'ExportDefaultDeclaration' && node.declaration) {
+      if (node.declaration.type === 'FunctionDeclaration' && node.declaration.id?.name === name) {
+        return { fn: node.declaration, kind: 'function' };
+      }
+      if (node.declaration.type === 'ClassDeclaration' && node.declaration.id?.name === name) {
+        return { fn: node.declaration, kind: 'class' };
+      }
+    }
+    // const Button = (props: Props) => {}
     if (node.type === 'VariableDeclaration') {
       const match = findComponentInVariableDecl(node, name);
       if (match) return match;
     }
-    // export const Button = ...
-    if (node.type === 'ExportNamedDeclaration' && node.declaration?.type === 'VariableDeclaration') {
-      const match = findComponentInVariableDecl(node.declaration, name);
-      if (match) return match;
-    }
   }
   return null;
+}
+
+/**
+ * For `class Foo extends React.Component<Props> {}`, return the `Props` node.
+ * Handles bare identifiers and MemberExpressions as the superclass, and both
+ * `superTypeParameters` (classic babel) and `superTypeArguments` (newer babel).
+ */
+function classPropsType(classNode: any): any | null {
+  if (!classNode?.superClass) return null;
+  const typeParams =
+    classNode.superTypeParameters ?? classNode.superTypeArguments ?? null;
+  if (!typeParams || !typeParams.params?.length) return null;
+  return typeParams.params[0];
 }
 
 function findComponentInVariableDecl(node: any, name: string): FoundComponent | null {
@@ -229,79 +292,131 @@ function extractPropsFromType(
   content: string,
   relFile: string,
   component: string,
-  kind: FoundComponent['kind']
+  kind: FoundComponent['kind'],
+  absFile: string,
+  projectPath: string
 ): ComponentPropsResult {
   const notes: string[] = [];
 
   // Inline object type: { a: string; b?: number }
   if (typeNode.type === 'TSTypeLiteral') {
-    return {
-      name: component,
-      file: relFile,
-      found: true,
-      componentKind: kind,
-      propsTypeSource: 'inline',
-      propsTypeName: null,
-      props: extractFromTypeLiteral(typeNode, content, notes),
-      notes,
-    };
+    return buildResult(
+      component,
+      relFile,
+      kind,
+      'inline',
+      null,
+      null,
+      extractFromTypeLiteral(typeNode, content, notes),
+      notes
+    );
   }
 
   // Named type reference
   if (typeNode.type === 'TSTypeReference' && typeNode.typeName?.type === 'Identifier') {
     const typeName: string = typeNode.typeName.name;
-    const resolved = resolveLocalType(ast, typeName);
+    const local = resolveLocalType(ast, typeName);
+    if (local) return localTypeResult(local, typeName, content, relFile, kind, component, notes);
 
-    if (resolved?.kind === 'interface') {
-      return {
-        name: component,
-        file: relFile,
-        found: true,
-        componentKind: kind,
-        propsTypeSource: 'local-interface',
-        propsTypeName: typeName,
-        props: extractFromInterfaceBody(resolved.node, content, notes),
-        notes,
-      };
-    }
+    // Not defined locally — try one-hop imported-type resolution
+    const imported = resolveImportedType(ast, typeName, absFile, projectPath);
+    if (imported) return importedTypeResult(imported, typeName, kind, component, relFile, notes);
 
-    if (resolved?.kind === 'type' && resolved.node.typeAnnotation?.type === 'TSTypeLiteral') {
-      return {
-        name: component,
-        file: relFile,
-        found: true,
-        componentKind: kind,
-        propsTypeSource: 'local-type',
-        propsTypeName: typeName,
-        props: extractFromTypeLiteral(resolved.node.typeAnnotation, content, notes),
-        notes,
-      };
-    }
-
-    if (resolved?.kind === 'type') {
-      notes.push(
-        `Type "${typeName}" is not a plain object type (likely intersection or mapped type)`
-      );
-      return emptyResult(component, relFile, kind, 'unresolved', typeName, notes);
-    }
-
-    // Not defined locally → probably imported
     notes.push(
-      `Type "${typeName}" is not defined in this file — likely imported from another module`
+      `Type "${typeName}" is not defined in this file and its import could not be resolved`
     );
-    return emptyResult(component, relFile, kind, 'imported', typeName, notes);
+    return emptyResult(component, relFile, kind, 'imported-unresolved', typeName, null, notes);
   }
 
   notes.push(`Unsupported prop type annotation (${typeNode.type})`);
-  return emptyResult(component, relFile, kind, 'unresolved', null, notes);
+  return emptyResult(component, relFile, kind, 'unresolved', null, null, notes);
 }
 
-function emptyResult(
+function localTypeResult(
+  local: LocalTypeMatch,
+  typeName: string,
+  content: string,
+  relFile: string,
+  kind: FoundComponent['kind'],
+  component: string,
+  notes: string[]
+): ComponentPropsResult {
+  if (local.kind === 'interface') {
+    return buildResult(
+      component,
+      relFile,
+      kind,
+      'local-interface',
+      typeName,
+      null,
+      extractFromInterfaceBody(local.node, content, notes),
+      notes
+    );
+  }
+  if (local.node.typeAnnotation?.type === 'TSTypeLiteral') {
+    return buildResult(
+      component,
+      relFile,
+      kind,
+      'local-type',
+      typeName,
+      null,
+      extractFromTypeLiteral(local.node.typeAnnotation, content, notes),
+      notes
+    );
+  }
+  notes.push(
+    `Type "${typeName}" is not a plain object type (likely intersection or mapped type)`
+  );
+  return emptyResult(component, relFile, kind, 'unresolved', typeName, null, notes);
+}
+
+function importedTypeResult(
+  imported: ImportedTypeResolution,
+  typeName: string,
+  kind: FoundComponent['kind'],
+  component: string,
+  relFile: string,
+  notes: string[]
+): ComponentPropsResult {
+  if (imported.kind === 'interface') {
+    return buildResult(
+      component,
+      relFile,
+      kind,
+      'imported-interface',
+      imported.exportedName,
+      imported.file,
+      extractFromInterfaceBody(imported.node, imported.content, notes),
+      notes
+    );
+  }
+  if (imported.node.typeAnnotation?.type === 'TSTypeLiteral') {
+    return buildResult(
+      component,
+      relFile,
+      kind,
+      'imported-type',
+      imported.exportedName,
+      imported.file,
+      extractFromTypeLiteral(imported.node.typeAnnotation, imported.content, notes),
+      notes
+    );
+  }
+  notes.push(
+    `Imported type "${typeName}" resolves to ${imported.file} but is not a plain object type`
+  );
+  return emptyResult(component, relFile, kind, 'imported-unresolved', typeName, imported.file, notes);
+}
+
+function buildResult(
   component: string,
   file: string,
   kind: FoundComponent['kind'],
   source: PropsTypeSource,
   typeName: string | null,
+  typeFile: string | null,
+  props: PropInfo[],
   notes: string[]
 ): ComponentPropsResult {
   return {
@@ -311,9 +426,22 @@ function emptyResult(
     componentKind: kind,
     propsTypeSource: source,
     propsTypeName: typeName,
-    props: [],
+    propsTypeFile: typeFile,
+    props,
     notes,
   };
+}
+
+function emptyResult(
+  component: string,
+  file: string,
+  kind: FoundComponent['kind'],
+  source: PropsTypeSource,
+  typeName: string | null,
+  typeFile: string | null,
+  notes: string[]
+): ComponentPropsResult {
+  return buildResult(component, file, kind, source, typeName, typeFile, [], notes);
 }
 
 function extractFromTypeLiteral(
@@ -391,15 +519,79 @@ function matchLocalType(node: any, name: string): LocalTypeMatch | null {
   return null;
 }
 
+// ---------- imported-type resolution (one hop) ----------
+
+interface ImportedTypeResolution {
+  kind: 'interface' | 'type';
+  node: any;
+  content: string;        // source of the target file (for sliceSource)
+  file: string;            // project-relative path to the target
+  exportedName: string;    // name the target file exports
+}
+
+function resolveImportedType(
+  sourceAst: any,
+  localName: string,
+  fromAbsFile: string,
+  projectPath: string
+): ImportedTypeResolution | null {
+  const lookup = findImportLookup(sourceAst, localName);
+  if (!lookup) return null;
+
+  const aliases = readTsconfigPaths(projectPath);
+  const resolved = resolveImportSource(lookup.source, fromAbsFile, projectPath, aliases);
+  if (!resolved) return null;
+
+  const targetAbs = path.resolve(projectPath, resolved);
+  const content = readFileSafe(targetAbs);
+  if (!content.trim()) return null;
+
+  const targetAst = safeParse(content, targetAbs);
+  if (!targetAst) return null;
+
+  const local = resolveLocalType(targetAst, lookup.exportedName);
+  if (!local) return null;
+
+  return {
+    kind: local.kind,
+    node: local.node,
+    content,
+    file: resolved,
+    exportedName: lookup.exportedName,
+  };
+}
+
+interface ImportLookup {
+  source: string;
+  exportedName: string; // the name the target file exports (post rename)
+}
+
+/**
+ * Find an import in `ast` whose local name is `localName` and return what
+ * it was originally exported as from the source module.
+ */
+function findImportLookup(ast: any, localName: string): ImportLookup | null {
+  for (const node of ast.program.body) {
+    if (node.type !== 'ImportDeclaration') continue;
+    for (const spec of node.specifiers ?? []) {
+      if (spec.type === 'ImportSpecifier' && spec.local?.name === localName) {
+        const imported =
+          spec.imported?.type === 'Identifier'
+            ? spec.imported.name
+            : spec.imported?.value ?? localName;
+        return { source: node.source.value, exportedName: imported };
+      }
+      // Default and namespace imports for types are rare; skip for MVP.
+    }
+  }
+  return null;
+}
+
 // ---------- helpers ----------
 
 function resolveInputPath(projectPath: string, fileArg: string): string {
   if (path.isAbsolute(fileArg)) return fileArg;
   return path.resolve(projectPath, fileArg);
-}
-
-function toProjectRelative(absPath: string, projectPath: string): string {
-  return path.relative(projectPath, absPath).replace(/\\/g, '/');
 }
 
 function readFileSafe(abs: string): string {
@@ -443,9 +635,12 @@ function formatProps(r: ComponentPropsResult, format: 'text' | 'markdown'): stri
     return lines.join('\n');
   }
 
+  const typeLabel = r.propsTypeName
+    ? r.propsTypeName + (r.propsTypeFile ? ` from ${r.propsTypeFile}` : '')
+    : '';
   lines.push(`Kind: ${r.componentKind ?? 'unknown'}`);
   lines.push(
-    `Props type: ${r.propsTypeSource ?? 'none'}${r.propsTypeName ? ' (' + r.propsTypeName + ')' : ''}`
+    `Props type: ${r.propsTypeSource ?? 'none'}${typeLabel ? ' (' + typeLabel + ')' : ''}`
   );
   lines.push('');
 
