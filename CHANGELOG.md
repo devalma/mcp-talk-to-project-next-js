@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-04-16
+
 ### Added
 - **Six new LLM-oriented MCP tools** designed to answer the questions an LLM
   asks while editing a Next.js project. Each is single-purpose, fast, and
