@@ -15,6 +15,7 @@ import { analyzeFeaturesTools } from './analyze-features.js';
 import { analyzePatternsTools } from './analyze-patterns.js';
 import { analyzeI18nTool } from './analyze-i18n.js';
 import { projectOverviewTool } from './project-overview.js';
+import { projectFingerprintTool } from './project-fingerprint.js';
 import { helpTool } from './help.js';
 
 // Tool registry
@@ -26,6 +27,7 @@ const toolDefinitions: ToolDefinition[] = [
   analyzePatternsTools,
   analyzeI18nTool,
   projectOverviewTool,
+  projectFingerprintTool,
   helpTool,
 ];
 
