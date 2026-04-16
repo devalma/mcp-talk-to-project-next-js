@@ -250,16 +250,18 @@ Analyze React and Next.js architectural patterns.
 ```
 
 ### `get_project_overview`
-Provides comprehensive information about the entire Next.js project.
+Consolidated project state in a single call: framework fingerprint, route summary, and code counts. Delegates to `get_project_fingerprint` + `analyze_routes` internally (no duplication).
 
 **Parameters:**
 ```json
 {
-  "format": "text|markdown|json - Output format (default: text)"
+  "format": "text|markdown|json - Output format (default: json)"
 }
 ```
 
-**Returns:** Complete project structure, technology stack, configuration, and statistics
+**Returns:** `{ name, version, fingerprint, routes: {total, pages, routeHandlers, apiRoutes, dynamic, server, client}, counts: {components, customHooks} }`
+
+**When to use:** One call when you want everything. For a cheaper first call, use `get_project_fingerprint`.
 
 ### `get_help`
 Get help information about available commands and usage.
@@ -325,6 +327,144 @@ Comprehensive internationalization (i18n) analysis with advanced validator syste
 
 ---
 
+## 🧭 LLM-Oriented Tools
+
+These tools are designed to answer the questions an LLM asks while editing a Next.js project. Each is single-purpose, fast, and returns structured JSON that can be fed into the next call. Together they form a natural workflow:
+
+> `find_symbol("Button")` → file path → `get_component_props` / `find_references` → imports & call sites → edit with confidence.
+
+### `get_project_fingerprint`
+Fast, no-AST project identification. Intended as the session-opener an LLM calls first to ground itself before any expensive analysis.
+
+**Parameters:**
+```json
+{ "format": "text|markdown|json - default: json" }
+```
+
+**Returns:**
+- `framework` — Next.js + React versions, router (`app`/`pages`/`mixed`), TypeScript on/off
+- `structure` — src/app/pages/components/lib/public paths, `hasMiddleware`
+- `tooling` — package manager, test framework, linter, formatter
+- `stack` — styling (tailwind/emotion/…), state (zustand/redux/…), data fetching (react-query/swr/trpc/…), forms, validation, i18n, auth, data layer (prisma/drizzle/…), UI kit (shadcn/radix/mui/…)
+- `configFiles` — detected config files
+- `versions` — key dependency versions
+
+Completes in milliseconds — pure filesystem inspection, no AST parsing.
+
+---
+
+### `analyze_routes`
+Routing graph for the project: URL → file, with rendering mode, data-fetching, dynamic segments, layout chain, and HTTP methods.
+
+**Parameters:**
+```json
+{
+  "path": "string (optional) - Filter routes. Exact match or /prefix/** glob.",
+  "format": "text|markdown|json - default: json"
+}
+```
+
+**Per-route fields:** `path`, `file`, `routerType` (`app`/`pages`), `kind` (`page`/`route-handler`/`api-route`), `rendering` (`server`/`client`/`null`), `dataFetching` (`async-rsc`/`gssp`/`gsp`/`route-handler`/`none`), `dynamicSegments`, `layoutChain` (App Router), `methods` (route handlers).
+
+**App Router specifics:**
+- `(group)` / `@slot` segments correctly stripped from URLs
+- Intercepting routes `(.)x` skipped from the main graph
+- `'use client'` directive → client rendering
+- Async default export → `async-rsc` data fetching
+
+**Examples:**
+```json
+{"path": "/settings/**"}
+{"path": "/api/users"}
+```
+
+---
+
+### `analyze_imports`
+Import graph for a file. Tells you both directions: what this file imports, and who imports this file.
+
+**Parameters:**
+```json
+{
+  "file": "string - project-relative or absolute path",
+  "direction": "outgoing|incoming|both - default: both",
+  "format": "text|markdown|json - default: json"
+}
+```
+
+**Returns:**
+- `outgoing`: `{ local: [...], external: [...], unresolved: [...] }` — each entry has source, resolved file, specifiers, import kind (`value`/`type`/`dynamic`/`re-export`), line number
+- `incoming`: array of importers with their specifiers and line numbers
+- Unrequested direction is `null` (consistent response shape for LLMs)
+
+**Resolution handles:** relative paths with auto-extension probing, TS-ESM `./foo.js` → `./foo.ts` on disk, tsconfig `paths` aliases (`@/*`), `index.*` directory resolution, comment-tolerant `tsconfig.json` parsing.
+
+---
+
+### `find_symbol`
+Locate declarations by name across the project. The glue between "I know the name" and the tools that need a file path.
+
+**Parameters:**
+```json
+{
+  "name": "string - the identifier (e.g. 'Button', 'useAuth', 'User')",
+  "kind": "any|component|hook|function|type|interface|class|variable - default: any",
+  "format": "text|markdown|json - default: json"
+}
+```
+
+**Classification:**
+- `useFoo` → `hook`
+- PascalCase + body returns JSX → `component`
+- Class extending `React.Component` / `PureComponent` → `component`
+- Otherwise classified by declaration type
+
+Each match reports `file`, `kind`, `exported`, `default` (default-export), `line`, `column`, and `returnsJsx` when confident.
+
+---
+
+### `find_references`
+Find every place in the project that imports and uses a given symbol. Returns flat list of references with file, line, column, and kind — the blast radius of a rename.
+
+**Parameters:**
+```json
+{
+  "symbol": "string - exported name (e.g. 'Button')",
+  "file": "string - the file that defines the symbol",
+  "format": "text|markdown|json - default: json"
+}
+```
+
+**Handles:** named imports (including `import { A as B }`), default imports with any local alias, namespace imports (`* as ns` → reports `ns.symbol` member access), re-exports (`export { X } from …`), type-only imports.
+
+**Kinds:** `import`, `call`, `jsx`, `type`, `identifier`.
+
+---
+
+### `get_component_props`
+Extract the prop surface of a named React component.
+
+**Parameters:**
+```json
+{
+  "component": "string - component name (e.g. 'Button')",
+  "file": "string - file that defines it",
+  "format": "text|markdown|json - default: json"
+}
+```
+
+**Returns:** `{ name, file, found, componentKind: 'function'|'arrow'|'class'|'unknown', propsTypeSource, propsTypeName, propsTypeFile, props: [{ name, type, required }], notes }`
+
+**Supports:**
+- Function, arrow, and class components (incl. `extends React.Component<Props>`)
+- Inline object types, local interfaces, local type aliases
+- One-hop imported types — follows `import type { Props } from '...'` to the target file, reports `propsTypeFile`
+- Renamed imports (`import { A as B }`) — reports the exported name
+
+**Out of scope (reported with notes, not guessed):** intersections (`A & B`), multi-hop re-exports, default/namespace imports used as types.
+
+---
+
 ## 🎯 Usage Patterns
 
 ### **Basic Analysis**
@@ -369,14 +509,23 @@ Comprehensive internationalization (i18n) analysis with advanced validator syste
 ```
 src/tools/
 ├── types.ts                    # Common tool types and utilities
-├── analyze-components.ts       # Component analysis tool
-├── analyze-hooks.ts           # Hook analysis tool  
-├── analyze-pages.ts           # Page analysis tool
-├── analyze-features.ts        # Feature analysis tool
-├── analyze-patterns.ts        # Pattern analysis tool
-├── project-overview.ts        # Project overview tool
-├── help.ts                    # Help documentation tool
-└── index.ts                   # Tool registry and execution
+├── shared/
+│   └── module-resolver.ts      # Import resolution shared across tools
+├── analyze-components.ts       # React component analysis
+├── analyze-hooks.ts            # Hook analysis
+├── analyze-pages.ts            # Page analysis (legacy)
+├── analyze-features.ts         # Feature analysis
+├── analyze-patterns.ts         # Architectural pattern analysis
+├── analyze-i18n.ts             # 7-validator i18n analysis
+├── analyze-routes.ts           # Routing graph (URL → file, rendering, layout chain)
+├── analyze-imports.ts          # Import graph (outgoing + incoming)
+├── find-symbol.ts              # Name → file resolution with classification
+├── find-references.ts          # Symbol usage sites (blast radius)
+├── get-component-props.ts      # Prop-type extraction (supports imported types)
+├── project-fingerprint.ts      # Fast no-AST project identification
+├── project-overview.ts         # Consolidated view (fingerprint + routes + counts)
+├── help.ts                     # Help documentation
+└── index.ts                    # Tool registry and execution
 ```
 
 ### **Plugin System**

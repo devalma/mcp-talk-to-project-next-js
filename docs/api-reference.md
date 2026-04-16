@@ -201,6 +201,297 @@ Help documentation and usage examples.
 }
 ```
 
+---
+
+## 🧭 LLM-Oriented Tools
+
+These tools are designed for programmatic chaining. Each accepts narrow inputs, returns structured JSON, and complements the others:
+
+> `find_symbol` → file path → `get_component_props` / `find_references` → imports (`analyze_imports`) → edit with confidence.
+
+### `get_project_fingerprint`
+
+Fast, no-AST project identification. Intended as the first call an LLM makes in a new session.
+
+**Input Schema:**
+```typescript
+{
+  format?: 'text' | 'markdown' | 'json';  // default: 'json'
+}
+```
+
+**Return Shape:**
+```typescript
+{
+  framework: {
+    nextVersion: string | null;
+    reactVersion: string | null;
+    router: 'app' | 'pages' | 'mixed' | null;
+    typescript: boolean;
+  };
+  structure: {
+    srcDir: string | null;
+    appDir: string | null;
+    pagesDir: string | null;
+    componentsDir: string | null;
+    libDir: string | null;
+    publicDir: string | null;
+    hasMiddleware: boolean;
+  };
+  tooling: {
+    packageManager: 'pnpm' | 'yarn' | 'npm' | 'bun' | null;
+    testFramework: string | null;  // vitest / jest / playwright / mocha / cypress
+    linter: string | null;          // eslint / biome
+    formatter: string | null;       // prettier / biome
+  };
+  stack: {
+    styling: string[];             // tailwind / emotion / styled-components / sass / vanilla-extract
+    stateManagement: string[];     // zustand / redux / jotai / recoil / valtio / mobx
+    dataFetching: string[];        // react-query / swr / trpc / apollo / urql
+    forms: string[];               // react-hook-form / formik / tanstack-form
+    validation: string[];          // zod / yup / valibot / joi
+    i18n: string | null;           // next-intl / next-i18next / react-i18next
+    auth: string | null;           // next-auth / clerk / supabase / workos / kinde
+    dataLayer: string | null;      // prisma / drizzle / supabase / mongoose / typeorm / kysely
+    uiKit: string | null;          // shadcn / radix / mui / chakra / antd / mantine
+  };
+  configFiles: string[];
+  versions: Record<string, string>;
+}
+```
+
+Runtime: milliseconds. No AST parsing — pure `package.json` + directory inspection.
+
+---
+
+### `analyze_routes`
+
+Routing graph for the Next.js project: URL → file, plus rendering mode, data-fetching, dynamic segments, layout chain, and HTTP methods.
+
+**Input Schema:**
+```typescript
+{
+  path?: string;    // Filter: exact URL match or "/prefix/**" glob
+  format?: 'text' | 'markdown' | 'json';  // default: 'json'
+}
+```
+
+**Route Shape:**
+```typescript
+{
+  path: string;                          // e.g. '/settings/profile'
+  file: string;                          // project-relative
+  routerType: 'app' | 'pages';
+  kind: 'page' | 'route-handler' | 'api-route';
+  dynamicSegments: string[];             // e.g. ['id'], ['...slug']
+  rendering: 'server' | 'client' | null; // App Router pages only
+  dataFetching: 'async-rsc' | 'gssp' | 'gsp' | 'isr' | 'route-handler' | 'none';
+  layoutChain?: string[];                // App Router, outermost → innermost
+  methods?: string[];                    // Route handlers: ['GET', 'POST', …]
+}
+```
+
+**Behavior:**
+- `(group)` and `@slot` App Router segments are URL-invisible → stripped from `path`
+- Intercepting routes (`(.)x`, `(..)x`) skipped entirely
+- `'use client'` directive → `rendering: 'client'`, `dataFetching: 'none'`
+- `export default async function` in App Router → `dataFetching: 'async-rsc'`
+- Pages Router `_app`, `_document`, `_error` excluded
+- HTTP methods extracted from route handler exports (`export async function GET …`, `export const HEAD = …`, destructuring exports)
+
+---
+
+### `analyze_imports`
+
+Import graph for a single file — bidirectional.
+
+**Input Schema:**
+```typescript
+{
+  file: string;   // project-relative or absolute
+  direction?: 'outgoing' | 'incoming' | 'both';  // default: 'both'
+  format?: 'text' | 'markdown' | 'json';          // default: 'json'
+}
+```
+
+**Return Shape:**
+```typescript
+{
+  file: string;
+  outgoing: {
+    local: OutgoingImport[];
+    external: OutgoingImport[];
+    unresolved: OutgoingImport[];
+  } | null;                          // null when direction is 'incoming'
+  incoming: IncomingImport[] | null; // null when direction is 'outgoing'
+}
+
+interface OutgoingImport {
+  source: string;                    // as written in the import
+  resolvedFile: string | null;       // project-relative if local
+  specifiers: string[];              // ['default'], ['*'], or named imports
+  kind: 'value' | 'type' | 'dynamic' | 're-export';
+  line: number;
+}
+
+interface IncomingImport {
+  file: string;
+  specifiers: string[];
+  kind: 'value' | 'type' | 'dynamic' | 're-export';
+  line: number;
+}
+```
+
+**Resolution:**
+- Relative imports with automatic extension probing (`.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`)
+- TS-ESM/NodeNext `./foo.js` → `./foo.ts` disk mapping
+- `tsconfig.json` `compilerOptions.paths` aliases (e.g. `"@/*": ["src/*"]`)
+- Comment-tolerant `tsconfig.json` parsing (JSON-with-comments)
+- `index.*` resolution for directory imports
+- Handles default / named / namespace / type-only / re-export / dynamic imports
+
+---
+
+### `find_symbol`
+
+Locate declarations by name across the project. Bridges "I know the name" to the tools that need a file path.
+
+**Input Schema:**
+```typescript
+{
+  name: string;
+  kind?: 'any' | 'component' | 'hook' | 'function' | 'type' | 'interface' | 'class' | 'variable';  // default: 'any'
+  format?: 'text' | 'markdown' | 'json';  // default: 'json'
+}
+```
+
+**Return Shape:**
+```typescript
+{
+  name: string;
+  kindFilter: string;
+  matches: SymbolMatch[];
+  total: number;
+  filesScanned: number;
+}
+
+interface SymbolMatch {
+  file: string;
+  name: string;
+  kind: 'component' | 'hook' | 'function' | 'type' | 'interface' | 'class' | 'variable';
+  exported: boolean;
+  default: boolean;      // default-exported
+  line: number;
+  column: number;
+  returnsJsx?: boolean;  // set when confident it's a component
+}
+```
+
+**Classification:**
+1. `useFoo` name → `hook` (overrides component)
+2. PascalCase name AND body contains JSX → `component`
+3. `ClassDeclaration extends Component | PureComponent | React.*` → `component`
+4. Otherwise classified by declaration type
+
+---
+
+### `find_references`
+
+Find every import + usage site of a symbol exported from a given file. Flat list with line/column — the blast radius of a rename.
+
+**Input Schema:**
+```typescript
+{
+  symbol: string;   // the exported name
+  file: string;     // file that defines it
+  format?: 'text' | 'markdown' | 'json';  // default: 'json'
+}
+```
+
+**Return Shape:**
+```typescript
+{
+  symbol: string;
+  definedIn: string;
+  references: Reference[];
+  total: number;
+  filesScanned: number;
+}
+
+interface Reference {
+  file: string;
+  line: number;
+  column: number;
+  kind: 'import' | 'call' | 'jsx' | 'type' | 'identifier';
+  localName: string;  // the name used in the importer (may differ from symbol on rename)
+}
+```
+
+**Handles:**
+- Named imports, incl. renamed (`import { A as B }`) → `localName: 'B'`
+- Default imports with any local alias
+- Namespace imports: `import * as ns from '...'` → reports `ns.symbol` member accesses
+- Re-exports: `export { X } from '...'`, `export * from '...'`
+- Type-only imports and type-position references
+
+**Known MVP gap:** no scope analysis, so a local binding that shadows the imported name gets counted as a reference. Shadowing is rare in well-written code.
+
+---
+
+### `get_component_props`
+
+Extract the prop surface of a named React component.
+
+**Input Schema:**
+```typescript
+{
+  component: string;
+  file: string;
+  format?: 'text' | 'markdown' | 'json';  // default: 'json'
+}
+```
+
+**Return Shape:**
+```typescript
+{
+  name: string;
+  file: string;
+  found: boolean;
+  componentKind: 'function' | 'arrow' | 'class' | 'unknown' | null;
+  propsTypeSource:
+    | 'inline'
+    | 'local-interface'
+    | 'local-type'
+    | 'imported-interface'
+    | 'imported-type'
+    | 'imported-unresolved'
+    | 'unresolved'
+    | null;
+  propsTypeName: string | null;
+  propsTypeFile: string | null;   // set when type came from another file
+  props: Array<{
+    name: string;
+    type: string;      // TS source text of the annotation
+    required: boolean;
+  }>;
+  notes: string[];
+}
+```
+
+**Supports:**
+- Function, arrow, and class components
+- Class components: `class Foo extends React.Component<Props>` / `extends Component<Props>` / `extends PureComponent<Props>`
+- Inline object types, local interfaces, local type aliases
+- One-hop imported types: follows `import type { Props } from '...'` to the target file; reports `propsTypeFile`
+- Renamed imports: reports the name as exported from the target file, not the local alias
+
+**Out of scope (reported with notes, never silently guessed):**
+- Intersection types (`A & B`), extends chains, mapped types
+- Multi-hop re-exports through barrel files
+- Default / namespace imports used as types
+
+---
+
 ## 🎯 Analysis Modes
 
 ### **All Mode** (`mode: "all"`)

@@ -7,8 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Six new LLM-oriented MCP tools** designed to answer the questions an LLM
+  asks while editing a Next.js project. Each is single-purpose, fast, and
+  returns structured JSON that can be chained into the next call.
+  - `get_project_fingerprint` — fast session-opener: framework, router,
+    structure, package manager, test framework, linter, and detected stack
+    (styling, state, data fetching, forms, validation, i18n, auth, ORM, UI
+    kit). Pure filesystem inspection, milliseconds.
+  - `analyze_routes` — routing graph: URL → file, rendering mode
+    (server/client), data-fetching (`async-rsc`/`gssp`/`gsp`/`route-handler`),
+    dynamic segments, layout chain (App Router), HTTP methods (route
+    handlers). Correctly strips `(group)` and `@slot` segments, skips
+    intercepting routes. Supports `path` filter with `/prefix/**` globs.
+  - `analyze_imports` — bidirectional import graph for a file. Outgoing
+    imports classified as local / external / unresolved with resolved paths;
+    incoming shows every importer with specifiers and line numbers. Handles
+    TS-ESM `./foo.js` → `./foo.ts` mapping, tsconfig `paths` aliases,
+    `index.*` directory resolution, and comment-tolerant `tsconfig.json`.
+  - `find_symbol` — locate declarations by name project-wide. Classifies as
+    component / hook / function / type / interface / class / variable using
+    AST heuristics (JSX presence, `useXxx` naming, `extends React.Component`).
+  - `find_references` — every place that imports and uses a given symbol,
+    with file/line/column and kind (import / call / jsx / type / identifier).
+    Handles renamed imports, default imports with any local alias, namespace
+    imports via member access, and re-exports.
+  - `get_component_props` — prop surface of a named React component.
+    Supports function / arrow / class components, inline object types, local
+    interfaces and type aliases, and one-hop imported types (reports
+    `propsTypeFile`).
+
+- **Consolidated module resolver** shared across `analyze_imports`,
+  `find_references`, and `get_component_props` at
+  `src/tools/shared/module-resolver.ts`.
+- **Vitest test suite** — 252 tests across 16 files (validators, new tools,
+  helpers). ~500ms full run.
+- **GitHub Actions CI** — build + test on Node 18 and 20 for push/PR to main.
+
 ### Changed
-- Preparing for next release
+- **`get_project_overview` rewritten** to delegate to `get_project_fingerprint`
+  + `analyze_routes` (no more duplicated framework-version / router /
+  directory-flag detection). Output shape now:
+  `{ name, version, fingerprint, routes: {...counts}, counts: {components, customHooks} }`.
+- **Consolidated i18n docs** — `docs/translatable-whitelist.md` +
+  `docs/translation-whitelist.md` merged into
+  `docs/i18n-translatable-strings.md`.
+
+### Removed
+- `src/index-new.ts` — unused parallel rewrite (no references anywhere).
+- `src/container/` (DI container) + `src/interfaces/container.ts` — zero
+  imports in codebase, fully dead code.
+- `"test": "node test.js"` script — the `test.js` file didn't exist.
+
+### Fixed
+- `analyze_imports` resolver now handles TS-ESM/NodeNext convention where
+  `./foo.js` imports resolve to `./foo.ts` / `./foo.tsx` on disk.
 
 ## [1.2.0] - 2025-07-25
 
