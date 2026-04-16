@@ -1,6 +1,8 @@
 # Plugin Development Guide
 
-Learn how to create powerful plugins for the MCP Talk to Project system using our DRY (Don't Repeat Yourself) architecture. This guide focuses on the modern BaseExtractor approach for efficient, maintainable plugin development.
+Learn how to extend this MCP server with a custom plugin. The design centers on a `BaseExtractor` abstract class that handles file discovery, batching, parsing, and caching — your plugin subclasses it and only implements the per-file analysis.
+
+> **Heads-up:** this guide is the most detailed reference for the plugin API, but individual method signatures in `src/plugins/common/` evolve. When the API shown here diverges from source, trust the source — every file in `src/plugins/common/` is short enough to read directly, and `src/plugins/i18n-extractor/` is a working end-to-end example to copy from.
 
 ## 📋 Table of Contents
 

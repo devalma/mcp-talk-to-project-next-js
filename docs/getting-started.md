@@ -1,59 +1,58 @@
-# Getting Started with Next.js Project Analyzer
+# Getting Started
 
-Quick start guide to get the MCP server running for comprehensive Next.js project analysis with flexible modes and pattern matching.
+Three things to do: install, point the server at your project, register it with your MCP client.
 
-## 📋 Prerequisites
+## Install
 
-- **Node.js** 18+ 
-- **npm** or **yarn**
-- A **Next.js project** to analyze
-- **Claude Desktop** or MCP-compatible client
-
-## ⚡ Quick Installation
-
-### Option 1: Use with npx (Easiest - No Installation Required)
-
-**Note:** This requires the package to be published to npm first.
+### Via npx (recommended — no global install)
 
 ```bash
-# Run directly from npm
 npx mcp-talk-to-project-next-js /path/to/your/nextjs/project
-
-# Or set environment variable and run
-export NEXTJS_PROJECT_PATH="/path/to/your/nextjs/project"
-npx mcp-talk-to-project-next-js
 ```
 
-### Option 2: Clone and Install
+First run downloads and caches the package. Subsequent invocations are instant.
+
+### Global install
 
 ```bash
-# Clone the repository
+npm install -g mcp-talk-to-project-next-js
+```
+
+Then the binary `mcp-talk-to-project-next-js` (MCP server) and `nextjs-i18n` (CLI) are on your PATH.
+
+### From source (for development)
+
+```bash
 git clone https://github.com/devalma/mcp-talk-to-project-next-js.git
 cd mcp-talk-to-project-next-js
-
-# Install dependencies
 npm install
-
-# Build the project
 npm run build
+npm test  # should report 291 passing
 ```
 
-### 3. Verify Installation
+Requires Node 20.19+ (vitest 4 engine constraint — see [next-steps.md](next-steps.md) for the lockfile story).
 
-```bash
-# Test the demo project
-npm run test
+## Point it at your project
 
-# Test with your project
-export NEXTJS_PROJECT_PATH="/path/to/your/nextjs/project"
-npm run cli analyze components
-```
+Two ways:
 
-## 🚀 Usage Options
+1. **Env var (preferred for MCP clients):** `NEXTJS_PROJECT_PATH=/absolute/path/to/project`
+2. **Argv (for one-off CLI runs):** `npx mcp-talk-to-project-next-js /absolute/path/to/project`
 
-### Option 1: MCP Server with npx (Easiest)
+If neither is set, the server uses the current working directory.
 
-Configure with Claude Desktop using npx:
+Additional env vars:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `NEXTJS_PROJECT_PATH` | `$PWD` | Absolute path to the project to analyze |
+| `MCP_DEBUG` | `false` | Set to `true` for verbose plugin-level logging |
+
+## Register with an MCP client
+
+### Claude Desktop
+
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
 
 ```json
 {
@@ -69,384 +68,89 @@ Configure with Claude Desktop using npx:
 }
 ```
 
-### Option 2: MCP Server with Local Installation
+Restart Claude Desktop. Ask "What tools do you have?" to verify the 16 tools show up.
 
-Configure with Claude Desktop for interactive analysis:
+### Cursor / VS Code / Claude Code CLI
 
-1. **Configure Claude Desktop**
-   ```json
-   {
-     "mcpServers": {
-       "nextjs-analyzer": {
-         "command": "node",
-         "args": ["/path/to/mcp-talk-to-project-next-js/dist/index.js", "/path/to/your/nextjs/project"],
-         "env": {}
-       }
-     }
-   }
-   ```
-
-2. **Start analyzing with Claude**
-   - "Analyze all components in this project"
-   - "Find components matching '*Button*'"
-   - "Show detailed hook analysis"
-   - "Get project overview in markdown format"
-
-### Option 2: Command Line Interface
-
-Quick analysis from terminal:
+All three read an `mcp` section in their settings. The shape is the same as above — `command`, `args`, `env`. In Claude Code CLI:
 
 ```bash
-# Basic component analysis
-node dist/index.js /path/to/project
-
-## 🎯 Enhanced Analysis Capabilities
-
-The analyzer now supports **three flexible analysis modes** for comprehensive project understanding:
-
-### **Mode: "all" (Quick Overview)**
-Perfect for initial project exploration and getting familiar with the codebase.
-
-**Claude Examples:**
-- "Show me all components in this project"
-- "What pages does this Next.js app have?"
-- "List all the hooks used in this project"
-
-### **Mode: "specific" (Targeted Analysis)**
-Use pattern matching to find specific elements you're looking for.
-
-**Claude Examples:**
-- "Find all Button components" (uses pattern: "*Button*")
-- "Show me API routes only" (uses pattern: "api/*")
-- "Find authentication-related features" (uses pattern: "*auth*")
-
-### **Mode: "detailed" (Comprehensive Analysis)**
-Get in-depth analysis with full details, dependencies, and insights.
-
-**Claude Examples:**
-- "Analyze components in detail with props and hooks"
-- "Give me detailed feature analysis with TypeScript types"
-- "Show comprehensive page analysis with data fetching methods"
-
-## � Available Analysis Tools
-
-### **🧩 Component Analysis**
-```
-Tool: analyze_components
-Supports: Pattern matching, props analysis, hooks usage
-Examples: "Button", "*Modal*", "Auth*"
+claude mcp add nextjs-analyzer npx -- mcp-talk-to-project-next-js
+# then set NEXTJS_PROJECT_PATH in the generated config file
 ```
 
-### **🎣 Hook Analysis**
-```
-Tool: analyze_hooks
-Supports: Custom/built-in filtering, dependency analysis
-Examples: "use*", "useState", "*Auth*"
-```
+### Multiple projects
 
-### **📄 Page Analysis**
-```
-Tool: analyze_pages
-Supports: Route analysis, API endpoints, dynamic routes
-Examples: "api/*", "[slug]", "blog/**"
-```
-
-### **🏗️ Feature Analysis**
-```
-Tool: analyze_features
-Supports: Module organization, TypeScript integration
-Examples: "auth", "*admin*", "user*"
-```
-
-### **🎨 Pattern Analysis**
-```
-Tool: analyze_patterns
-Supports: React patterns, architectural insights
-Types: hooks, context, hoc, render-props
-```
-
-### **📊 Project Overview**
-```
-Tool: get_project_overview
-Provides: Complete project statistics and structure
-```
-
-## 🎨 Output Formats
-
-All tools support multiple output formats:
-
-- **`text`**: Human-readable format (default)
-- **`markdown`**: Structured markdown for documentation
-- **`json`**: Machine-readable structured data
-
-**Claude Examples:**
-- "Analyze components and format as markdown"
-- "Get project overview in JSON format"
-- "Show hook analysis in plain text"
-
-```bash
-npm run cli analyze-dependencies /path/to/project
-```
-
-**Output includes:**
-- External dependencies usage
-- Internal module relationships
-- Circular dependency detection
-- Unused imports/exports
-
-### Hooks Analysis
-
-Deep dive into React hooks usage:
-
-```bash
-npm run cli analyze-hooks /path/to/project
-```
-
-**Output includes:**
-- Built-in hooks usage patterns
-- Custom hooks identification
-- Hook complexity and best practices
-- Performance implications
-
-## 🎯 MCP Tools Reference
-
-When using as an MCP server, these tools are available:
-
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `analyze_components` | Extract React component info | `projectPath`, `targetPath?` |
-| `analyze_hooks` | Analyze React hooks usage | `projectPath`, `targetPath?` |
-| `analyze_pages` | Analyze Next.js pages | `projectPath`, `targetPath?` |
-| `analyze_dependencies` | Map import/export relationships | `projectPath`, `targetPath?` |
-| `get_project_summary` | Generate project overview | `projectPath` |
-| `analyze_file` | Detailed single file analysis | `filePath` |
-| `search_code` | Search for patterns in codebase | `projectPath`, `pattern` |
-| `get_metrics` | Calculate code quality metrics | `projectPath`, `targetPath?` |
-
-## 🔧 Configuration
-
-### CLI Configuration
-
-Create a `.mcp-config.json` file in your project root:
+Define one `mcpServers` entry per project, each with its own `NEXTJS_PROJECT_PATH`:
 
 ```json
 {
-  "plugins": {
-    "component-extractor": {
-      "enabled": true,
-      "includeTests": false,
-      "maxComplexity": 10
-    },
-    "hooks-analyzer": {
-      "enabled": true,
-      "trackCustomHooks": true
-    }
-  },
-  "output": {
-    "format": "json",
-    "pretty": true
-  },
-  "patterns": {
-    "include": ["src/**/*.{ts,tsx,js,jsx}"],
-    "exclude": ["**/*.test.*", "**/*.stories.*"]
+  "mcpServers": {
+    "acme-web": { "command": "npx", "args": ["mcp-talk-to-project-next-js"], "env": { "NEXTJS_PROJECT_PATH": "/repos/acme-web" } },
+    "acme-admin": { "command": "npx", "args": ["mcp-talk-to-project-next-js"], "env": { "NEXTJS_PROJECT_PATH": "/repos/acme-admin" } }
   }
 }
 ```
 
-### Environment Variables
+## First workflow
+
+Try this in your MCP client:
+
+1. *"Run `get_project_fingerprint`"* — framework, router, stack, all detected in ms.
+2. *"Find the `Button` component"* — calls `find_symbol`, reports the file.
+3. *"Show me Button's props"* — calls `get_component_props`, returns the prop list.
+
+See [tools.md](tools.md) for every tool's parameters.
+
+## CLI-only usage
+
+The `nextjs-i18n` binary runs the i18n analyzer without the MCP server:
 
 ```bash
-# Logging level
-export MCP_LOG_LEVEL=info
-
-# Cache directory
-export MCP_CACHE_DIR=/tmp/mcp-cache
-
-# Max file size for analysis (bytes)
-export MCP_MAX_FILE_SIZE=1048576
+nextjs-i18n /path/to/project i18n --format=json
+nextjs-i18n /path/to/project/src/components i18n --format=text
+nextjs-i18n /path/to/project/src/pages/dashboard.tsx i18n
+nextjs-i18n --help
 ```
 
-## 📁 Supported Project Structures
+Useful for CI pipelines or as a drop-in `pre-commit` check.
 
-### Next.js Projects
+## Troubleshooting
 
-```
-my-nextjs-app/
-├── pages/              # Pages routing
-├── components/         # Reusable components  
-├── hooks/             # Custom hooks
-├── lib/               # Utility libraries
-├── styles/            # CSS/styling
-└── public/            # Static assets
-```
+### Server doesn't appear in the MCP client
 
-### Create React App
+- Path in the config must be absolute.
+- On macOS, restart the client after editing the config — it only reads on launch.
+- Run `npx mcp-talk-to-project-next-js` in a terminal first to confirm the package installs cleanly.
 
-```
-my-react-app/
-├── src/
-│   ├── components/    # React components
-│   ├── hooks/         # Custom hooks
-│   ├── pages/         # Page components
-│   ├── utils/         # Utilities
-│   └── App.tsx        # Main app
-└── public/
-```
+### Tools return empty results
 
-### Custom React Projects
+- Check that the project at `NEXTJS_PROJECT_PATH` is actually a Next.js project (has `next` in `package.json` dependencies).
+- Tools like `analyze_routes` need an `app/` or `pages/` directory — confirm one exists.
+- If `find_symbol` can't find something that exists: double-check casing (the scanner is case-sensitive on Linux CI even if your local dev machine is case-insensitive).
 
-```
-my-custom-app/
-├── src/
-│   ├── features/      # Feature-based organization
-│   │   ├── auth/
-│   │   ├── dashboard/
-│   │   └── shared/
-│   ├── shared/        # Shared components
-│   └── types/         # TypeScript types
-```
+### "Failed to parse" notes in output
 
-## 📊 Example Output
+- The Babel parser couldn't read the file. Usually a stage-4 TC39 proposal the parser plugins list doesn't cover (decorators are on, but exotic patterns may not be).
+- Report it as an issue with a minimal reproducer.
 
-### Component Analysis Result
+### Performance
 
-```json
-{
-  "success": true,
-  "data": {
-    "components": [
-      {
-        "name": "UserProfile",
-        "filePath": "/src/components/UserProfile.tsx",
-        "type": "functional",
-        "props": [
-          {
-            "name": "user",
-            "type": "User",
-            "required": true
-          },
-          {
-            "name": "showEmail",
-            "type": "boolean",
-            "required": false,
-            "defaultValue": "false"
-          }
-        ],
-        "hooks": [
-          {
-            "name": "useState",
-            "type": "builtin",
-            "usageCount": 2
-          },
-          {
-            "name": "useUserData",
-            "type": "custom",
-            "usageCount": 1
-          }
-        ],
-        "complexity": 4,
-        "linesOfCode": 67,
-        "exports": {
-          "default": true,
-          "named": []
-        }
-      }
-    ],
-    "summary": {
-      "totalComponents": 1,
-      "functionalComponents": 1,
-      "classComponents": 0,
-      "averageComplexity": 4,
-      "hooksUsage": {
-        "useState": 2,
-        "useEffect": 1,
-        "useUserData": 1
-      }
-    }
-  },
-  "metadata": {
-    "processingTime": 156,
-    "filesProcessed": 1,
-    "pluginVersion": "1.0.0"
-  }
-}
-```
+- First scan of a large repo takes a few seconds. Subsequent calls reuse warm plugin state within a session.
+- Prefer scoped calls (`path` parameter on analyze tools; specific file on LLM tools) for tight loops.
 
-## ⚠️ Troubleshooting
-
-### Common Issues
-
-**Parse Errors**
-```bash
-# Issue: TypeScript parse errors
-# Solution: Ensure you have TypeScript types installed
-npm install --save-dev @types/react @types/node
-```
-
-**Memory Issues**
-```bash
-# Issue: Out of memory on large projects
-# Solution: Increase Node.js memory limit
-export NODE_OPTIONS="--max-old-space-size=4096"
-npm run cli analyze-components /large/project
-```
-
-**Permission Errors**
-```bash
-# Issue: Cannot read files
-# Solution: Check file permissions
-chmod -R 755 /path/to/project
-```
-
-### Debug Mode
-
-Enable debug logging for troubleshooting:
+## Debug mode
 
 ```bash
-# Debug mode
-export DEBUG=mcp:*
-npm run cli analyze-components /path/to/project
-
-# Verbose output
-npm run cli analyze-components /path/to/project --verbose
+MCP_DEBUG=true npx mcp-talk-to-project-next-js /path/to/project
 ```
 
-### Performance Tips
+Emits plugin-level logs to stderr. Useful when a tool reports "0 results" and you want to see which files the scanner rejected.
 
-1. **Use target paths** to limit analysis scope:
-   ```bash
-   npm run cli analyze-components /project/path src/components
-   ```
+## Where to go next
 
-2. **Exclude unnecessary files** with patterns:
-   ```bash
-   npm run cli analyze-components /project --exclude "**/*.test.*" "**/*.stories.*"
-   ```
-
-3. **Enable caching** for repeated analysis:
-   ```bash
-   export MCP_CACHE_ENABLED=true
-   npm run cli analyze-components /project
-   ```
-
-## 🔗 Next Steps
-
-1. **Explore the CLI**: Try different analysis commands on your projects
-2. **Set up MCP Server**: Integrate with your AI assistant
-3. **Create Custom Plugins**: Extend functionality for your specific needs
-4. **Read the Docs**: Check out the detailed documentation for advanced features
-
-### Useful Links
-
-- [Plugin Development Guide](./plugin-development.md)
-- [Common Utilities Documentation](./common-utilities.md)
-- [API Reference](./api-reference.md)
-- [Examples and Use Cases](./examples/)
-
-## 💬 Support
-
-- **Issues**: Report bugs and feature requests on GitHub
-- **Discussions**: Join the community discussions
-- **Documentation**: Check the docs directory for detailed guides
-
-Happy analyzing! 🚀
+- **Every tool's parameters and returns:** [tools.md](tools.md)
+- **How the i18n analyzer decides what to flag:** [i18n.md](i18n.md)
+- **Writing your own plugin:** [plugin-development.md](plugin-development.md)
+- **Utility layer (FileUtils, ASTUtils, caching):** [common-utilities.md](common-utilities.md)
+- **Known limitations and future work:** [next-steps.md](next-steps.md)

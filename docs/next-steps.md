@@ -8,6 +8,7 @@ Pragmatic guide for the next developer. Captures known limitations, natural exte
 - ✅ `get_file_exports(file)` — lists every top-level export, classifies kind, records re-exports.
 - ✅ `get_hook_signature(hook, file)` — mirror of `get_component_props` for custom hooks.
 - ✅ Shared classifier extracted to [src/tools/shared/classify.ts](../src/tools/shared/classify.ts) and reused by `find_symbol`, `get_file_exports`, `get_hook_signature`.
+- ✅ **Doc rework**: 1133-line README collapsed to ~100 lines; canonical tool reference moved to [tools.md](tools.md); i18n docs consolidated into [i18n.md](i18n.md); phantom-tool and pre-1.3 references purged from [getting-started.md](getting-started.md). Deleted: `USAGE.md`, `docs/README.md`, `docs/api-reference.md`, `docs/quick-reference.md`, `docs/i18n-translatable-strings.md`, `docs/i18n-validators.md`, `docs/string-contexts-analysis.md`, `docs/plugins/`. ~6000 → ~2300 lines total.
 
 ## 1. Known gaps in new tools
 
@@ -123,19 +124,19 @@ Biggest win in [src/tools/find-references.ts](../src/tools/find-references.ts) a
 
 ## 5. Documentation
 
-### Docs that may have drifted (not updated in 1.3.0)
-- [docs/getting-started.md](getting-started.md) — still references the pre-1.3.0 tool set
-- [docs/quick-reference.md](quick-reference.md) — ditto
-- [docs/plugin-development.md](plugin-development.md) — still accurate (plugin API unchanged)
-- [USAGE.md](../USAGE.md) — CLI-focused; hasn't been rechecked against current `cli.js` behavior
-- [docs/common-utilities.md](common-utilities.md) — references the `src/plugins/common/` utility layer; still accurate but may not cover newer helpers
+The 1.4.1 doc rework (see top of this file) consolidated 11 files into 6 and purged stale content. What's left:
 
 ### Dynamic help output
-[src/tools/help.ts](../src/tools/help.ts) and [src/plugins/help-extractor/plugin.ts](../src/plugins/help-extractor/plugin.ts) generate help from **plugin** metadata, not from the new **tool** definitions. The new LLM-oriented tools (fingerprint, routes, imports, symbol, references, component-props) will not appear in help output.
+[src/tools/help.ts](../src/tools/help.ts) and [src/plugins/help-extractor/plugin.ts](../src/plugins/help-extractor/plugin.ts) generate help from **plugin** metadata, not from the **tool** definitions. The LLM-oriented tools (fingerprint, routes, imports, symbol, references, component-props, file-exports, hook-signature) will not appear in help output.
 - **Fix:** Extend help-extractor to include entries from `getAllTools()` in `src/tools/index.ts`, or write a second help plugin that introspects tools.
+- **Priority:** Medium — `get_help` looks incomplete, which undermines trust.
 
-### Large, monolithic README
-[README.md](../README.md) is 1097 lines. Most users never get past the first screen. Consider splitting: `README.md` stays minimal (elevator pitch + install + top-3 tools), detailed tool docs move to `docs/tools.md`.
+### Auto-generate `docs/tools.md` from source
+The tool reference is now hand-written. The tool definitions in `src/tools/*.ts` already carry Zod schemas and descriptions — a small script could regenerate `tools.md` from them at `prebuild` time.
+- **Priority:** Low — only matters once the hand-written doc drifts again.
+
+### Plugin-development and common-utilities drift
+Both docs now carry a "may drift — verify against source" banner. A full rewrite against the current `src/plugins/common/` API is worth ~4 hours when someone is extending the system.
 
 ---
 

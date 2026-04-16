@@ -1,6 +1,8 @@
-# Common Utilities Documentation
+# Common Utilities
 
-The common utilities provide a standardized set of tools that all plugins can use, ensuring consistency and reducing code duplication across the plugin ecosystem.
+Shared helpers that plugins import from `src/plugins/common/`. Use this doc as a guide to what's available and roughly what each utility does — then verify the exact signature against the source file, since individual method APIs evolve.
+
+The source files are small and readable: [src/plugins/common/](../src/plugins/common/) has one file per utility (`file-utils.ts`, `ast-utils.ts`, `pattern-utils.ts`, `cache-utils.ts`, `logger.ts`, `react-component-utils.ts`, `react-hooks-utils.ts`, `react-context-utils.ts`, `nextjs-utils.ts`, `extractor-ast-utils.ts`, `base-extractor.ts`).
 
 ## 📋 Table of Contents
 
