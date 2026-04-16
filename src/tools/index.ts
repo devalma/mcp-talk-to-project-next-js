@@ -20,6 +20,7 @@ import { analyzeRoutesTool } from './analyze-routes.js';
 import { analyzeImportsTool } from './analyze-imports.js';
 import { findReferencesTool } from './find-references.js';
 import { getComponentPropsTool } from './get-component-props.js';
+import { findSymbolTool } from './find-symbol.js';
 import { helpTool } from './help.js';
 
 // Tool registry
@@ -36,6 +37,7 @@ const toolDefinitions: ToolDefinition[] = [
   analyzeImportsTool,
   findReferencesTool,
   getComponentPropsTool,
+  findSymbolTool,
   helpTool,
 ];
 
