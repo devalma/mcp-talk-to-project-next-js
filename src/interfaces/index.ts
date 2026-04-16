@@ -11,9 +11,6 @@ export * from './extractors.js';
 // Service interfaces
 export * from './services.js';
 
-// Container interfaces
-export * from './container.js';
-
 // Re-export commonly used types
 export type {
   ComponentInfo,

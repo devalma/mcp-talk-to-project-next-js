@@ -14,7 +14,8 @@
     "dev": "tsx src/index.ts",
     "clean": "rm -rf dist",
     "prepare": "npm run build",
-    "test": "node test.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "analyze": "node cli.js",
     "cli": "node cli.js"
   },
@@ -59,7 +60,8 @@
     "@types/babel__traverse": "^7.20.4",
     "@types/glob": "^8.1.0",
     "@types/node": "^20.10.5",
-    "tsx": "^4.6.2"
+    "tsx": "^4.6.2",
+    "vitest": "^4.1.4"
   },
   "engines": {
     "node": ">=18.0.0"

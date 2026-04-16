@@ -1,7 +1,8 @@
 # Development files
 src/
+tests/
 tsconfig.json
-test.js
+vitest.config.ts
 *.log
 
 # Demo files
