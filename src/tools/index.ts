@@ -18,6 +18,7 @@ import { projectOverviewTool } from './project-overview.js';
 import { projectFingerprintTool } from './project-fingerprint.js';
 import { analyzeRoutesTool } from './analyze-routes.js';
 import { analyzeImportsTool } from './analyze-imports.js';
+import { findReferencesTool } from './find-references.js';
 import { helpTool } from './help.js';
 
 // Tool registry
@@ -32,6 +33,7 @@ const toolDefinitions: ToolDefinition[] = [
   projectFingerprintTool,
   analyzeRoutesTool,
   analyzeImportsTool,
+  findReferencesTool,
   helpTool,
 ];
 
