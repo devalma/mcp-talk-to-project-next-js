@@ -252,7 +252,7 @@ export class Classy extends React.Component {
     expect(r.notes[0]).toMatch(/no props type argument/);
   });
 
-  it('flags intersection types as unresolved', () => {
+  it('resolves intersection types via a named alias', () => {
     write(
       'src/X.tsx',
       `type A = { a: string };
@@ -261,8 +261,177 @@ type Props = A & B;
 export function X(props: Props) { return null; }`
     );
     const r = getComponentProps(tmp, 'X', 'src/X.tsx');
-    expect(r.propsTypeSource).toBe('unresolved');
-    expect(r.notes[0]).toMatch(/intersection or mapped type/);
+    expect(r.propsTypeSource).toBe('local-type');
+    expect(r.propsTypeName).toBe('Props');
+    expect(r.props).toEqual([
+      { name: 'a', type: 'string', required: true },
+      { name: 'b', type: 'number', required: true },
+    ]);
+  });
+
+  it('resolves top-level intersection (unnamed composition)', () => {
+    write(
+      'src/X.tsx',
+      `type A = { a: string };
+type B = { b?: number };
+export function X(props: A & B) { return null; }`
+    );
+    const r = getComponentProps(tmp, 'X', 'src/X.tsx');
+    expect(r.propsTypeSource).toBe('composed');
+    expect(r.propsTypeName).toBeNull();
+    expect(r.props).toEqual([
+      { name: 'a', type: 'string', required: true },
+      { name: 'b', type: 'number', required: false },
+    ]);
+  });
+
+  it('later intersection branch overrides earlier on name conflict', () => {
+    write(
+      'src/X.tsx',
+      `type A = { label: string };
+type B = { label: number };
+export function X(props: A & B) { return null; }`
+    );
+    const r = getComponentProps(tmp, 'X', 'src/X.tsx');
+    expect(r.props).toEqual([{ name: 'label', type: 'number', required: true }]);
+  });
+
+  it('resolves interface extends (single base)', () => {
+    write(
+      'src/X.tsx',
+      `interface Base { id: string }
+interface Props extends Base { label: string }
+export function X(props: Props) { return null; }`
+    );
+    const r = getComponentProps(tmp, 'X', 'src/X.tsx');
+    expect(r.propsTypeSource).toBe('local-interface');
+    expect(r.propsTypeName).toBe('Props');
+    expect(r.props).toEqual([
+      { name: 'id', type: 'string', required: true },
+      { name: 'label', type: 'string', required: true },
+    ]);
+  });
+
+  it('resolves interface extends (multiple bases, own wins)', () => {
+    write(
+      'src/X.tsx',
+      `interface A { x: string; y: number }
+interface B { y: string; z: boolean }
+interface Props extends A, B { z: string }
+export function X(props: Props) { return null; }`
+    );
+    const r = getComponentProps(tmp, 'X', 'src/X.tsx');
+    expect(r.propsTypeSource).toBe('local-interface');
+    // A contributes x, y; B overrides y and adds z; Props overrides z.
+    expect(r.props).toEqual([
+      { name: 'x', type: 'string', required: true },
+      { name: 'y', type: 'string', required: true },
+      { name: 'z', type: 'string', required: true },
+    ]);
+  });
+
+  it('resolves Omit<Base, K>', () => {
+    write(
+      'src/X.tsx',
+      `interface Base { a: string; b: number; c: boolean }
+export function X(props: Omit<Base, 'b'>) { return null; }`
+    );
+    const r = getComponentProps(tmp, 'X', 'src/X.tsx');
+    expect(r.propsTypeSource).toBe('composed');
+    expect(r.propsTypeName).toBe('Omit');
+    expect(r.props.map((p) => p.name)).toEqual(['a', 'c']);
+  });
+
+  it('resolves Pick<Base, K | K2>', () => {
+    write(
+      'src/X.tsx',
+      `interface Base { a: string; b: number; c: boolean }
+export function X(props: Pick<Base, 'a' | 'c'>) { return null; }`
+    );
+    const r = getComponentProps(tmp, 'X', 'src/X.tsx');
+    expect(r.propsTypeSource).toBe('composed');
+    expect(r.props.map((p) => p.name)).toEqual(['a', 'c']);
+  });
+
+  it('resolves Partial<Base>', () => {
+    write(
+      'src/X.tsx',
+      `interface Base { a: string; b: number }
+export function X(props: Partial<Base>) { return null; }`
+    );
+    const r = getComponentProps(tmp, 'X', 'src/X.tsx');
+    expect(r.propsTypeSource).toBe('composed');
+    expect(r.props).toEqual([
+      { name: 'a', type: 'string', required: false },
+      { name: 'b', type: 'number', required: false },
+    ]);
+  });
+
+  it('resolves Required<Base>', () => {
+    write(
+      'src/X.tsx',
+      `interface Base { a?: string; b?: number }
+export function X(props: Required<Base>) { return null; }`
+    );
+    const r = getComponentProps(tmp, 'X', 'src/X.tsx');
+    expect(r.propsTypeSource).toBe('composed');
+    expect(r.props).toEqual([
+      { name: 'a', type: 'string', required: true },
+      { name: 'b', type: 'number', required: true },
+    ]);
+  });
+
+  it('resolves React.FC<Props> generic on a const', () => {
+    write(
+      'src/Btn.tsx',
+      `import React from 'react';
+interface Props { label: string; onClick?: () => void }
+export const Btn: React.FC<Props> = (props) => null;`
+    );
+    const r = getComponentProps(tmp, 'Btn', 'src/Btn.tsx');
+    expect(r.found).toBe(true);
+    expect(r.propsTypeSource).toBe('local-interface');
+    expect(r.propsTypeName).toBe('Props');
+    expect(r.props.map((p) => p.name)).toEqual(['label', 'onClick']);
+  });
+
+  it('resolves bare FC<Props> (named import)', () => {
+    write(
+      'src/Btn.tsx',
+      `import { FC } from 'react';
+type Props = { label: string };
+export const Btn: FC<Props> = (props) => null;`
+    );
+    const r = getComponentProps(tmp, 'Btn', 'src/Btn.tsx');
+    expect(r.propsTypeSource).toBe('local-type');
+    expect(r.props).toEqual([{ name: 'label', type: 'string', required: true }]);
+  });
+
+  it('resolves intersection of imported + local type', () => {
+    write('src/types.ts', 'export interface Base { id: string }');
+    write(
+      'src/X.tsx',
+      `import type { Base } from './types';
+type Local = { label: string };
+export function X(props: Base & Local) { return null; }`
+    );
+    const r = getComponentProps(tmp, 'X', 'src/X.tsx');
+    expect(r.propsTypeSource).toBe('composed');
+    expect(r.props.map((p) => p.name)).toEqual(['id', 'label']);
+  });
+
+  it('reports unsupported top-level types with a note', () => {
+    write(
+      'src/X.tsx',
+      `type Props = { [K in 'a' | 'b']: string };
+export function X(props: Props) { return null; }`
+    );
+    const r = getComponentProps(tmp, 'X', 'src/X.tsx');
+    // Mapped type is inside a local-type alias; the reference classifies as
+    // local-type but the resolver can't extract members and adds a note.
+    expect(r.propsTypeSource).toBe('local-type');
+    expect(r.props).toEqual([]);
+    expect(r.notes.some((n) => /TSMappedType|Unsupported/.test(n))).toBe(true);
   });
 
   it('reports not-found when the component is missing', () => {
