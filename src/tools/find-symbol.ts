@@ -25,6 +25,7 @@ import { parse } from '@babel/parser';
 import type { ToolDefinition, ToolContext } from './types.js';
 import { createTextResponse, createErrorResponse } from './types.js';
 import { toProjectRelative } from './shared/module-resolver.js';
+import { classifyFunctionKind, extendsReactComponent } from './shared/classify.js';
 
 const ArgsSchema = z.object({
   name: z.string().min(1),
@@ -320,71 +321,6 @@ function makeVariableMatch(
     line: decl.loc?.start.line ?? 0,
     column: decl.loc?.start.column ?? 0,
   };
-}
-
-// ---------- classification ----------
-
-function classifyFunctionKind(name: string, fn: any): SymbolKind {
-  // Hook: use followed by uppercase letter
-  if (/^use[A-Z]/.test(name)) return 'hook';
-  // Component: PascalCase + body contains JSX
-  if (isPascalCase(name) && functionReturnsJsx(fn)) return 'component';
-  return 'function';
-}
-
-function isPascalCase(name: string): boolean {
-  return /^[A-Z][A-Za-z0-9]*$/.test(name);
-}
-
-function functionReturnsJsx(fn: any): boolean {
-  if (!fn) return false;
-  // Arrow function with implicit JSX return: const Foo = () => <div />
-  if (fn.type === 'ArrowFunctionExpression' && isJsxNode(fn.body)) return true;
-  const body = fn.body;
-  if (!body || body.type !== 'BlockStatement') return false;
-
-  let found = false;
-  function walk(n: any) {
-    if (found || !n || typeof n !== 'object') return;
-    if (isJsxNode(n)) {
-      found = true;
-      return;
-    }
-    // Don't descend into nested function declarations — their JSX doesn't
-    // reflect on the outer function.
-    if (
-      n.type === 'FunctionDeclaration' ||
-      n.type === 'FunctionExpression' ||
-      n.type === 'ArrowFunctionExpression'
-    ) {
-      return;
-    }
-    for (const key in n) {
-      if (key === 'loc' || key === 'start' || key === 'end') continue;
-      const v = (n as any)[key];
-      if (Array.isArray(v)) for (const c of v) walk(c);
-      else if (v && typeof v === 'object') walk(v);
-    }
-  }
-
-  for (const stmt of body.body) walk(stmt);
-  return found;
-}
-
-function isJsxNode(n: any): boolean {
-  return n?.type === 'JSXElement' || n?.type === 'JSXFragment';
-}
-
-function extendsReactComponent(classNode: any): boolean {
-  const sup = classNode.superClass;
-  if (!sup) return false;
-  if (sup.type === 'Identifier') {
-    return sup.name === 'Component' || sup.name === 'PureComponent';
-  }
-  if (sup.type === 'MemberExpression' && sup.property?.type === 'Identifier') {
-    return sup.property.name === 'Component' || sup.property.name === 'PureComponent';
-  }
-  return false;
 }
 
 // ---------- helpers ----------
