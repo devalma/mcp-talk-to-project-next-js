@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-04-16
+
+### Changed
+- **Doc rework.** Consolidated ~6000 lines of documentation across 12
+  files down to ~2500 lines across 7 files, with one source of truth
+  per topic.
+  - `README.md` reduced from 1133 lines to 115 — pitch, install, core
+    workflow, links out.
+  - New `docs/tools.md` — canonical per-tool reference for all 16
+    MCP tools; parameters and return shapes derived from source.
+  - New `docs/i18n.md` — merged `docs/i18n-translatable-strings.md`,
+    `docs/i18n-validators.md`, and `docs/string-contexts-analysis.md`
+    into a single intent → validators → decision-tree doc.
+  - `docs/getting-started.md` rewritten against actual server behavior
+    (env vars, MCP-client config variants, troubleshooting).
+  - `docs/plugin-development.md` and `docs/common-utilities.md` carry a
+    "verify against source" banner since internal APIs drift.
+- **CI: Node matrix updated to `[20.19, 22]`.** Previous `[18.x, 20.x]`
+  could not satisfy vitest 4's `^20.19 || >=22.12` engine constraint.
+- **CI: `npm ci` → `npm install --no-audit --no-fund`.** The lockfile
+  is generated on macOS and npm's strict optional-dep check rejects
+  platform-specific rolldown bindings on Linux runners.
+
+### Removed
+- `USAGE.md`, `docs/README.md`, `docs/api-reference.md`,
+  `docs/quick-reference.md`, `docs/i18n-translatable-strings.md`,
+  `docs/i18n-validators.md`, `docs/string-contexts-analysis.md`,
+  `docs/plugins/` — content consolidated into the new layout.
+- References to phantom tools (`analyze_dependencies`, `get_metrics`,
+  `search_code`, `.mcp-config.json`) that never existed.
+
+### Fixed
+- Broken cross-references to removed docs.
+- Stale Node version requirements (18+ → 20.19+) in getting-started.
+
 ## [1.4.0] - 2026-04-16
 
 ### Added
