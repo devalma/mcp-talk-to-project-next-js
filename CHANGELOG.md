@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-04-16
+
+### Added
+- **`get_file_exports` MCP tool** — lists every top-level export of a file
+  with name, kind (component / hook / function / class / interface / type /
+  enum / variable), `default` flag, and line/column. Also records
+  re-exports: `export { X } from './y'` (`kind: re-export`),
+  `export * from './y'` (`kind: re-export-all`), and
+  `export * as ns from './y'` (`kind: re-export-ns`). Answers the question
+  before every import: "what does this file expose?"
+- **`get_hook_signature` MCP tool** — mirror of `get_component_props` for
+  custom hooks. Returns each parameter (`name`, `type` as TS source text,
+  `required`, plus `destructured` / `rest` flags) and the explicit
+  `returnType` annotation (null when inferred). Handles function
+  declarations, arrow functions, object/array destructuring, rest params,
+  and default-value optionality.
+
+### Changed
+- **`get_component_props` now resolves composed types.** Previously returned
+  `unresolved` for intersections / `extends` / utility types; now fully
+  handles them:
+  - `A & B` — resolves each side and merges members (later wins on name
+    conflict). Top-level unnamed intersection surfaces as
+    `propsTypeSource: 'composed'`.
+  - `interface X extends Base1, Base2 { … }` — recursively resolves each
+    base, then applies own members (own wins).
+  - `Omit<T, K>` / `Pick<T, K>` with string-literal key unions — filters
+    members accordingly.
+  - `Partial<T>` / `Required<T>` — flips the `required` flag on every
+    member.
+  - `const X: React.FC<Props> = …` / `FC<Props>` / `FunctionComponent<Props>` /
+    `VFC<Props>` — reads the generic type argument from the variable's
+    annotation, not just the param.
+  - Intersections of imported + local types are resolved across files.
+  - Circular type references are detected and reported via a note instead
+    of infinite-looping.
+- **Shared classifier** extracted to `src/tools/shared/classify.ts`
+  (`classifyFunctionKind`, `functionReturnsJsx`, `extendsReactComponent`).
+  `find_symbol` and the two new tools share it — one source of truth for
+  "is this a component/hook/function?".
+
 ## [1.3.0] - 2026-04-16
 
 ### Added

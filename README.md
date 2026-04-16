@@ -331,7 +331,9 @@ Comprehensive internationalization (i18n) analysis with advanced validator syste
 
 These tools are designed to answer the questions an LLM asks while editing a Next.js project. Each is single-purpose, fast, and returns structured JSON that can be fed into the next call. Together they form a natural workflow:
 
-> `find_symbol("Button")` → file path → `get_component_props` / `find_references` → imports & call sites → edit with confidence.
+> `find_symbol("Button")` → file path → `get_component_props` / `get_hook_signature` / `find_references` → imports & call sites → edit with confidence.
+>
+> To know what a file exposes before writing an import, call `get_file_exports`.
 
 ### `get_project_fingerprint`
 Fast, no-AST project identification. Intended as the session-opener an LLM calls first to ground itself before any expensive analysis.
@@ -460,8 +462,42 @@ Extract the prop surface of a named React component.
 - Inline object types, local interfaces, local type aliases
 - One-hop imported types — follows `import type { Props } from '...'` to the target file, reports `propsTypeFile`
 - Renamed imports (`import { A as B }`) — reports the exported name
+- **Composed types** (1.4+): intersections (`A & B`), interface `extends` chains, utility types (`Omit`, `Pick`, `Partial`, `Required`), and `React.FC<Props>` / `FC<Props>` generics on const declarations. Top-level unnamed composition reports `propsTypeSource: 'composed'`.
 
-**Out of scope (reported with notes, not guessed):** intersections (`A & B`), multi-hop re-exports, default/namespace imports used as types.
+**Out of scope (reported with notes, not guessed):** mapped types (`{ [K in keyof T]: U }`), conditional types, multi-hop re-exports, default/namespace imports used as types, `Omit`/`Pick` keys given as type references rather than string-literal unions.
+
+---
+
+### `get_file_exports`
+List every top-level export of a file — name, kind, `default` flag, line/column. The question you ask before every import.
+
+**Parameters:**
+```json
+{
+  "file": "string - project-relative or absolute path",
+  "format": "text|markdown|json - default: json"
+}
+```
+
+**Per-export fields:** `name`, `kind` (`component`/`hook`/`function`/`class`/`interface`/`type`/`enum`/`variable`/`re-export`/`re-export-all`/`re-export-ns`/`unknown`), `default`, `line`, `column`. Re-exports include `source` (original module) and `originalName` when renamed.
+
+---
+
+### `get_hook_signature`
+Mirror of `get_component_props` for custom hooks. Parameters + explicit return-type annotation.
+
+**Parameters:**
+```json
+{
+  "hook": "string - hook name (e.g. 'useAuth')",
+  "file": "string - file that defines it",
+  "format": "text|markdown|json - default: json"
+}
+```
+
+**Returns:** `{ name, file, found, kind: 'function'|'arrow'|'unknown'|null, parameters: [{ name, type, required, destructured?, rest? }], returnType: string|null, notes }`
+
+`returnType` is `null` when the hook's return is inferred rather than explicitly annotated. Destructured params (`{ a, b }: Options`) are surfaced as a single entry named `options` (or `tuple` for array destructuring) with the full annotation as the type and `destructured: true`.
 
 ---
 

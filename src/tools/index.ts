@@ -20,6 +20,8 @@ import { analyzeRoutesTool } from './analyze-routes.js';
 import { analyzeImportsTool } from './analyze-imports.js';
 import { findReferencesTool } from './find-references.js';
 import { getComponentPropsTool } from './get-component-props.js';
+import { getFileExportsTool } from './get-file-exports.js';
+import { getHookSignatureTool } from './get-hook-signature.js';
 import { findSymbolTool } from './find-symbol.js';
 import { helpTool } from './help.js';
 
@@ -37,6 +39,8 @@ const toolDefinitions: ToolDefinition[] = [
   analyzeImportsTool,
   findReferencesTool,
   getComponentPropsTool,
+  getFileExportsTool,
+  getHookSignatureTool,
   findSymbolTool,
   helpTool,
 ];

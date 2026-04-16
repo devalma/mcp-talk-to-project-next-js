@@ -1,6 +1,13 @@
 # Next Steps / Handoff Notes
 
-Pragmatic guide for the next developer. Captures known limitations, natural extensions, and hygiene items that emerged during the 1.3.0 work. Ranked by impact — start at the top, stop when time runs out.
+Pragmatic guide for the next developer. Captures known limitations, natural extensions, and hygiene items that emerged during the 1.3.0–1.4.0 work. Ranked by impact — start at the top, stop when time runs out.
+
+## Shipped in 1.4.0
+
+- ✅ `get_component_props` now resolves intersections (`A & B`), interface `extends`, utility types (`Omit`, `Pick`, `Partial`, `Required`), and `React.FC<Props>` / `FC<Props>` generic on const declarations.
+- ✅ `get_file_exports(file)` — lists every top-level export, classifies kind, records re-exports.
+- ✅ `get_hook_signature(hook, file)` — mirror of `get_component_props` for custom hooks.
+- ✅ Shared classifier extracted to [src/tools/shared/classify.ts](../src/tools/shared/classify.ts) and reused by `find_symbol`, `get_file_exports`, `get_hook_signature`.
 
 ## 1. Known gaps in new tools
 
@@ -12,14 +19,12 @@ These are bounded, acknowledged, and have explicit notes at call sites. If a use
 - **Fix sketch:** Track identifier bindings per scope while walking. `@babel/traverse` has scope support; we intentionally avoided it to skip the ESM-default-export interop dance (see commit `11b1a3c`). When adding scope, confirm the import still works cleanly with the project's `"type": "module"` setup.
 - **Priority:** Medium — shadowing is rare in clean code, but silently wrong answers erode trust.
 
-### `get_component_props` — intersection / extends / generics
+### `get_component_props` — remaining gaps (mapped / conditional types)
 - **File:** [src/tools/get-component-props.ts](../src/tools/get-component-props.ts)
-- **Gap:** When the prop type is `A & B`, `extends Base`, `Omit<T, 'x'>`, or a mapped type, the tool reports `propsTypeSource: 'unresolved'` with a note. Also skips default and namespace imports as types (rare).
-- **Fix sketch:**
-  - **Intersection:** recursively resolve each side, merge members (handle overrides). Same algorithm for `interface X extends Y`.
-  - **Generic React.FC<Props>:** unwrap the type argument and re-enter extraction.
-  - **Utility types (`Omit`, `Pick`, `Partial`):** handle the common cases by rewriting the member list. TS has a lot of these; 80/20 pick: `Partial`, `Required`, `Omit`, `Pick`.
-- **Priority:** High — modern React codebases lean heavily on intersections and utility types.
+- **Shipped in 1.4:** intersections (`A & B`), interface `extends`, utility types (`Omit`, `Pick`, `Partial`, `Required`), `React.FC<Props>` / `FC<Props>` generics, cross-file intersection resolution.
+- **Remaining gap:** Mapped types (`{ [K in keyof T]: U }`), conditional types (`T extends U ? A : B`), `Record<K, V>`, and default/namespace imports as types are still reported with a note and empty props. Also `Omit`/`Pick` keys must be string literals — referenced key types aren't resolved.
+- **Fix sketch:** The resolver in `src/tools/get-component-props.ts` (`resolveTypeToMembers`) is the central dispatch point; add new cases beside `TSIntersectionType` / `TSTypeReference`. Mapped types over keyof a known type are the most valuable next step; conditional types are rare in prop surfaces.
+- **Priority:** Low-medium — these patterns are much rarer in prop types than the 1.4 cases were.
 
 ### `analyze_imports` / `find_references` — multi-hop re-exports
 - **Gap:** Barrel files that re-export (`export { X } from './y'`) are treated as a direct import of `y`. If you search for references to a symbol and an importer goes through a barrel, the barrel shows as the importer rather than the eventual consumer.
@@ -49,13 +54,11 @@ These are bounded, acknowledged, and have explicit notes at call sites. If a use
 
 ### High value
 
-1. **`get_file_exports(file)`** — what does this file expose? Needed before writing an import. Lightweight to implement: parse, collect `export` declarations and re-exports, classify each by kind (already have the classifier from `find_symbol`).
+1. **Pagination / token budgeting** — large projects produce large outputs. Add `limit` + `offset` to `find_references`, `find_symbol`, `analyze_routes`, `analyze_imports`. The MCP response is one text blob; chunking means LLMs don't blow context on noise.
 
-2. **`get_hook_signature(name, file)`** — like `get_component_props` but for custom hooks. Returns `{ parameters: [{name, type, required}], returnType: string | null }`. React apps are hook-heavy; this is the missing mirror.
+2. **AST cache within a session** — every call re-parses files it has already seen. In-memory map keyed by `(absPath, mtime)` invalidated on file change would cut repeat-call latency by an order of magnitude. Especially pays off now that `get_file_exports`, `find_symbol`, and `get_component_props` often hit the same files back-to-back.
 
-3. **Pagination / token budgeting** — large projects produce large outputs. Add `limit` + `offset` to `find_references`, `find_symbol`, `analyze_routes`, `analyze_imports`. The MCP response is one text blob; chunking means LLMs don't blow context on noise.
-
-4. **AST cache within a session** — every call re-parses files it has already seen. In-memory map keyed by `(absPath, mtime)` invalidated on file change would cut repeat-call latency by an order of magnitude. See how `analyze_imports.extractImports` and `find_references.collectReferencesInFile` both parse the same files.
+3. **Follow barrel re-exports in `find_references` / `analyze_imports`** — `get_file_exports` now surfaces re-export chains in structured form. The next step is letting `find_references` follow `export { X } from './y'` so the importer chain collapses to the eventual consumer. See §1 below for the tradeoff.
 
 ### Medium value
 
