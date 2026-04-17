@@ -25,7 +25,6 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import fs from 'node:fs';
 import path from 'node:path';
-import { parse } from '@babel/parser';
 import type { ToolDefinition, ToolContext } from './types.js';
 import { createTextResponse, createErrorResponse } from './types.js';
 import {
@@ -33,6 +32,7 @@ import {
   resolveImportSource,
   toProjectRelative,
 } from './shared/module-resolver.js';
+import { parseFileCached } from './shared/ast-cache.js';
 
 const ArgsSchema = z.object({
   component: z.string().min(1),
@@ -141,11 +141,10 @@ export function getComponentProps(
     notes: [note],
   });
 
-  const content = readFileSafe(absFile);
-  if (!content.trim()) return notFound('File is empty');
-
-  const ast = safeParse(content, absFile);
-  if (!ast) return notFound('File failed to parse');
+  const parsed = parseFileCached(absFile);
+  if (!parsed) return notFound('File failed to parse or is empty');
+  const ast = parsed.ast;
+  const content = parsed.content;
 
   const found = findComponent(ast, component);
   if (!found) return notFound(`Component "${component}" not found in ${relFile}`);
@@ -383,10 +382,10 @@ function extractPropsFromType(
     const imported = resolveImportedType(ast, typeName, absFile, projectPath);
     if (imported) {
       const targetAbs = path.resolve(projectPath, imported.file);
-      const targetAst = safeParse(imported.content, targetAbs);
+      const targetParsed = parseFileCached(targetAbs);
       const targetFile: FileCtx = {
-        ast: targetAst,
-        content: imported.content,
+        ast: targetParsed?.ast ?? null,
+        content: targetParsed?.content ?? '',
         absFile: targetAbs,
       };
       const members = membersFromLocalType(
@@ -507,10 +506,10 @@ function resolveTypeToMembers(
     const imported = resolveImportedType(file.ast, typeName, file.absFile, ctx.projectPath);
     if (imported) {
       const targetAbs = path.resolve(ctx.projectPath, imported.file);
-      const targetAst = safeParse(imported.content, targetAbs);
+      const targetParsed = parseFileCached(targetAbs);
       const targetFile: FileCtx = {
-        ast: targetAst,
-        content: imported.content,
+        ast: targetParsed?.ast ?? null,
+        content: targetParsed?.content ?? '',
         absFile: targetAbs,
       };
       mergeInto(
@@ -720,7 +719,6 @@ function matchLocalType(node: any, name: string): LocalTypeMatch | null {
 interface ImportedTypeResolution {
   kind: 'interface' | 'type';
   node: any;
-  content: string;        // source of the target file (for sliceSource)
   file: string;            // project-relative path to the target
   exportedName: string;    // name the target file exports
 }
@@ -739,19 +737,15 @@ function resolveImportedType(
   if (!resolved) return null;
 
   const targetAbs = path.resolve(projectPath, resolved);
-  const content = readFileSafe(targetAbs);
-  if (!content.trim()) return null;
+  const targetParsed = parseFileCached(targetAbs);
+  if (!targetParsed) return null;
 
-  const targetAst = safeParse(content, targetAbs);
-  if (!targetAst) return null;
-
-  const local = resolveLocalType(targetAst, lookup.exportedName);
+  const local = resolveLocalType(targetParsed.ast, lookup.exportedName);
   if (!local) return null;
 
   return {
     kind: local.kind,
     node: local.node,
-    content,
     file: resolved,
     exportedName: lookup.exportedName,
   };
@@ -788,36 +782,6 @@ function findImportLookup(ast: any, localName: string): ImportLookup | null {
 function resolveInputPath(projectPath: string, fileArg: string): string {
   if (path.isAbsolute(fileArg)) return fileArg;
   return path.resolve(projectPath, fileArg);
-}
-
-function readFileSafe(abs: string): string {
-  try {
-    return fs.readFileSync(abs, 'utf-8');
-  } catch {
-    return '';
-  }
-}
-
-function safeParse(content: string, absFile: string): any {
-  const isTs = absFile.endsWith('.ts') || absFile.endsWith('.tsx');
-  const isJsx = absFile.endsWith('.tsx') || absFile.endsWith('.jsx') || absFile.endsWith('.js');
-  try {
-    return parse(content, {
-      sourceType: 'module',
-      allowImportExportEverywhere: true,
-      plugins: [
-        'decorators-legacy',
-        'dynamicImport',
-        'exportDefaultFrom',
-        'optionalChaining',
-        'nullishCoalescingOperator',
-        ...(isTs ? (['typescript'] as const) : []),
-        ...(isJsx ? (['jsx'] as const) : []),
-      ] as any,
-    });
-  } catch {
-    return null;
-  }
 }
 
 // ---------- formatting ----------

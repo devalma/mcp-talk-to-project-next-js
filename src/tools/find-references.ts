@@ -18,7 +18,6 @@ import { z } from 'zod';
 import fs from 'node:fs';
 import path from 'node:path';
 import { glob } from 'glob';
-import { parse } from '@babel/parser';
 import type { ToolDefinition, ToolContext } from './types.js';
 import { createTextResponse, createErrorResponse } from './types.js';
 import {
@@ -27,6 +26,7 @@ import {
   toProjectRelative,
   type TsconfigAlias,
 } from './shared/module-resolver.js';
+import { parseFileCached } from './shared/ast-cache.js';
 import {
   paginate,
   paginationArgsShape,
@@ -189,11 +189,9 @@ function collectReferencesInFile(
   symbol: string,
   aliases: TsconfigAlias[]
 ): Reference[] {
-  const content = readFileSafe(absFile);
-  if (!content.trim()) return [];
-
-  const ast = safeParse(content, absFile);
-  if (!ast) return [];
+  const parsed = parseFileCached(absFile);
+  if (!parsed) return [];
+  const ast = parsed.ast;
 
   const matchingImports = findMatchingImports(ast, absFile, absTarget, projectPath, symbol, aliases);
   if (matchingImports.length === 0) return [];
@@ -431,39 +429,6 @@ function resolvesTo(
 function resolveInputPath(projectPath: string, fileArg: string): string {
   if (path.isAbsolute(fileArg)) return fileArg;
   return path.resolve(projectPath, fileArg);
-}
-
-function readFileSafe(abs: string): string {
-  try {
-    return fs.readFileSync(abs, 'utf-8');
-  } catch {
-    return '';
-  }
-}
-
-function safeParse(content: string, absFile: string): any {
-  const isTs = absFile.endsWith('.ts') || absFile.endsWith('.tsx');
-  const isJsx = absFile.endsWith('.tsx') || absFile.endsWith('.jsx') || absFile.endsWith('.js');
-  try {
-    return parse(content, {
-      sourceType: 'module',
-      allowImportExportEverywhere: true,
-      allowReturnOutsideFunction: true,
-      plugins: [
-        'decorators-legacy',
-        'dynamicImport',
-        'exportDefaultFrom',
-        'exportNamespaceFrom',
-        'optionalChaining',
-        'nullishCoalescingOperator',
-        'topLevelAwait',
-        ...(isTs ? (['typescript'] as const) : []),
-        ...(isJsx ? (['jsx'] as const) : []),
-      ] as any,
-    });
-  } catch {
-    return null;
-  }
 }
 
 // ---------- formatting ----------

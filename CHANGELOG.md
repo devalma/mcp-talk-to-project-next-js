@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-04-16
+
+### Added
+- **Session-scoped AST cache** — new
+  [`src/tools/shared/ast-cache.ts`](src/tools/shared/ast-cache.ts) caches
+  parsed Babel ASTs by `(absFile, mtimeMs)` for the duration of the MCP
+  server process. Five LLM-oriented tools (`find_symbol`,
+  `find_references`, `get_file_exports`, `get_component_props`,
+  `get_hook_signature`) now share one parser configured with the union
+  of plugins they previously used. Pagination on
+  `find_symbol` / `find_references` no longer re-parses every file on
+  page 2+; the parse cost is paid once per file per mtime. LRU-bounded
+  at 500 entries; in-memory only (no on-disk persistence).
+
+### Changed
+- **Internal only — no API change.** The five tools above keep their
+  exact request/response shapes. The cache is a transparent speedup
+  behind their existing entrypoints.
+
 ## [1.5.0] - 2026-04-16
 
 ### Added

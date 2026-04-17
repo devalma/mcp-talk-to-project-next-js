@@ -18,13 +18,12 @@
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import fs from 'node:fs';
 import { glob } from 'glob';
-import { parse } from '@babel/parser';
 import type { ToolDefinition, ToolContext } from './types.js';
 import { createTextResponse, createErrorResponse } from './types.js';
 import { toProjectRelative } from './shared/module-resolver.js';
 import { classifyFunctionKind, extendsReactComponent } from './shared/classify.js';
+import { parseFileCached } from './shared/ast-cache.js';
 import {
   paginate,
   paginationArgsShape,
@@ -210,15 +209,13 @@ function compareByFileLineColumn(
 }
 
 function findInFile(absFile: string, projectPath: string, name: string): SymbolMatch[] {
-  const content = readFileSafe(absFile);
-  if (!content.trim()) return [];
-  const ast = safeParse(content, absFile);
-  if (!ast) return [];
+  const parsed = parseFileCached(absFile);
+  if (!parsed) return [];
 
   const relFile = toProjectRelative(absFile, projectPath);
   const matches: SymbolMatch[] = [];
 
-  for (const node of ast.program.body) {
+  for (const node of parsed.ast.program.body) {
     collectTopLevelDeclaration(node, name, relFile, matches, false, false);
   }
   return matches;
@@ -354,38 +351,6 @@ function makeVariableMatch(
     line: decl.loc?.start.line ?? 0,
     column: decl.loc?.start.column ?? 0,
   };
-}
-
-// ---------- helpers ----------
-
-function readFileSafe(abs: string): string {
-  try {
-    return fs.readFileSync(abs, 'utf-8');
-  } catch {
-    return '';
-  }
-}
-
-function safeParse(content: string, absFile: string): any {
-  const isTs = absFile.endsWith('.ts') || absFile.endsWith('.tsx');
-  const isJsx = absFile.endsWith('.tsx') || absFile.endsWith('.jsx') || absFile.endsWith('.js');
-  try {
-    return parse(content, {
-      sourceType: 'module',
-      allowImportExportEverywhere: true,
-      plugins: [
-        'decorators-legacy',
-        'dynamicImport',
-        'exportDefaultFrom',
-        'optionalChaining',
-        'nullishCoalescingOperator',
-        ...(isTs ? (['typescript'] as const) : []),
-        ...(isJsx ? (['jsx'] as const) : []),
-      ] as any,
-    });
-  } catch {
-    return null;
-  }
 }
 
 // ---------- formatting ----------

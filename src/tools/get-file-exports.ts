@@ -18,10 +18,10 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import fs from 'node:fs';
 import path from 'node:path';
-import { parse } from '@babel/parser';
 import type { ToolDefinition, ToolContext } from './types.js';
 import { createTextResponse, createErrorResponse } from './types.js';
 import { toProjectRelative } from './shared/module-resolver.js';
+import { parseFileCached } from './shared/ast-cache.js';
 import {
   classifyFunctionKind,
   extendsReactComponent,
@@ -121,14 +121,11 @@ export function getFileExports(
   if (!fs.existsSync(absFile)) throw new Error(`File not found: ${fileArg}`);
   const relFile = toProjectRelative(absFile, projectPath);
 
-  const content = readFileSafe(absFile);
   const exports: FileExport[] = [];
-  if (!content.trim()) return { file: relFile, exports, total: 0 };
+  const parsed = parseFileCached(absFile);
+  if (!parsed) return { file: relFile, exports, total: 0 };
 
-  const ast = safeParse(content, absFile);
-  if (!ast) return { file: relFile, exports, total: 0 };
-
-  for (const node of ast.program.body) {
+  for (const node of parsed.ast.program.body) {
     collectExport(node, exports);
   }
   return { file: relFile, exports, total: exports.length };
@@ -387,37 +384,6 @@ function nameOfIdent(node: any): string | null {
 function resolveInputPath(projectPath: string, fileArg: string): string {
   if (path.isAbsolute(fileArg)) return fileArg;
   return path.resolve(projectPath, fileArg);
-}
-
-function readFileSafe(abs: string): string {
-  try {
-    return fs.readFileSync(abs, 'utf-8');
-  } catch {
-    return '';
-  }
-}
-
-function safeParse(content: string, absFile: string): any {
-  const isTs = absFile.endsWith('.ts') || absFile.endsWith('.tsx');
-  const isJsx = absFile.endsWith('.tsx') || absFile.endsWith('.jsx') || absFile.endsWith('.js');
-  try {
-    return parse(content, {
-      sourceType: 'module',
-      allowImportExportEverywhere: true,
-      plugins: [
-        'decorators-legacy',
-        'dynamicImport',
-        'exportDefaultFrom',
-        'exportNamespaceFrom',
-        'optionalChaining',
-        'nullishCoalescingOperator',
-        ...(isTs ? (['typescript'] as const) : []),
-        ...(isJsx ? (['jsx'] as const) : []),
-      ] as any,
-    });
-  } catch {
-    return null;
-  }
 }
 
 // ---------- formatting ----------

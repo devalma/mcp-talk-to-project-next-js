@@ -46,6 +46,22 @@ Ordering per tool (deterministic across pages):
 - `analyze_imports.incoming` — `(file, line)`
 - `analyze_routes` — lexicographic by `path`
 
+### Performance — session-scoped AST cache (1.6+)
+
+The five LLM-oriented tools that parse JS/TS files (`find_symbol`,
+`find_references`, `get_file_exports`, `get_component_props`,
+`get_hook_signature`) share an in-memory parsed-AST cache keyed on
+`(absFile, mtimeMs)` for the lifetime of the MCP server process.
+Repeat calls to the same file are filesystem stats + map lookups, not
+re-parses. In particular, paged calls (page 2 of `find_references`,
+etc.) and natural chains like `find_symbol → get_component_props →
+find_references` no longer pay the parse cost twice.
+
+The cache is invalidated automatically when a file's mtime changes,
+LRU-bounded at 500 entries, and not persisted across server restarts.
+LLM clients can issue follow-up calls freely without worrying about
+amortizing parse cost themselves.
+
 ---
 
 ## LLM-oriented tools

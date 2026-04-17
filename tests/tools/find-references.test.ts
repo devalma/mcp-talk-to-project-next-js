@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { findReferences, findReferencesTool } from '../../src/tools/find-references.js';
+import { clearAstCache, getAstCacheStats } from '../../src/tools/shared/ast-cache.js';
 
 let tmp: string;
 
@@ -13,6 +14,7 @@ function write(rel: string, content = '') {
 }
 
 beforeEach(() => {
+  clearAstCache();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'refs-'));
 });
 
@@ -265,5 +267,14 @@ fetchUser();`
       ctx
     );
     expect(negOffset.isError).toBe(true);
+  });
+
+  it('paging adds zero new cache misses past page 1', async () => {
+    writeFiveImporters();
+    clearAstCache();
+    await findReferences(tmp, 'fetchUser', 'src/lib/api.ts', 2, 0);
+    const missesAfterPage1 = getAstCacheStats().misses;
+    await findReferences(tmp, 'fetchUser', 'src/lib/api.ts', 2, 2);
+    expect(getAstCacheStats().misses).toBe(missesAfterPage1);
   });
 });

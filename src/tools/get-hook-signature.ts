@@ -31,10 +31,10 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import fs from 'node:fs';
 import path from 'node:path';
-import { parse } from '@babel/parser';
 import type { ToolDefinition, ToolContext } from './types.js';
 import { createTextResponse, createErrorResponse } from './types.js';
 import { toProjectRelative } from './shared/module-resolver.js';
+import { parseFileCached } from './shared/ast-cache.js';
 
 const ArgsSchema = z.object({
   hook: z.string().min(1),
@@ -133,11 +133,10 @@ export function getHookSignature(
     notes: [note],
   });
 
-  const content = readFileSafe(absFile);
-  if (!content.trim()) return notFound('File is empty');
-
-  const ast = safeParse(content, absFile);
-  if (!ast) return notFound('File failed to parse');
+  const parsed = parseFileCached(absFile);
+  if (!parsed) return notFound('File failed to parse or is empty');
+  const ast = parsed.ast;
+  const content = parsed.content;
 
   const found = findHook(ast, hook);
   if (!found) return notFound(`Hook "${hook}" not found in ${relFile}`);
@@ -258,36 +257,6 @@ function extractReturnType(fn: any, content: string): string | null {
 function resolveInputPath(projectPath: string, fileArg: string): string {
   if (path.isAbsolute(fileArg)) return fileArg;
   return path.resolve(projectPath, fileArg);
-}
-
-function readFileSafe(abs: string): string {
-  try {
-    return fs.readFileSync(abs, 'utf-8');
-  } catch {
-    return '';
-  }
-}
-
-function safeParse(content: string, absFile: string): any {
-  const isTs = absFile.endsWith('.ts') || absFile.endsWith('.tsx');
-  const isJsx = absFile.endsWith('.tsx') || absFile.endsWith('.jsx') || absFile.endsWith('.js');
-  try {
-    return parse(content, {
-      sourceType: 'module',
-      allowImportExportEverywhere: true,
-      plugins: [
-        'decorators-legacy',
-        'dynamicImport',
-        'exportDefaultFrom',
-        'optionalChaining',
-        'nullishCoalescingOperator',
-        ...(isTs ? (['typescript'] as const) : []),
-        ...(isJsx ? (['jsx'] as const) : []),
-      ] as any,
-    });
-  } catch {
-    return null;
-  }
 }
 
 function sliceSource(content: string, node: any): string {

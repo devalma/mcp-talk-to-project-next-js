@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { findSymbol, findSymbolTool } from '../../src/tools/find-symbol.js';
+import { clearAstCache, getAstCacheStats } from '../../src/tools/shared/ast-cache.js';
 
 let tmp: string;
 
@@ -13,6 +14,7 @@ function write(rel: string, content = '') {
 }
 
 beforeEach(() => {
+  clearAstCache();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'findsym-'));
 });
 
@@ -265,5 +267,14 @@ describe('findSymbol - pagination', () => {
     const negOffset = await findSymbolTool.handler({ name: 'X', offset: -1 }, ctx);
     expect(negOffset.isError).toBe(true);
     expect((negOffset.content[0] as any).text).toMatch(/offset/);
+  });
+
+  it('paging adds zero new cache misses past page 1', async () => {
+    writeFiveMatches();
+    clearAstCache();
+    await findSymbol(tmp, 'Btn', 'any', 2, 0);
+    const missesAfterPage1 = getAstCacheStats().misses;
+    await findSymbol(tmp, 'Btn', 'any', 2, 2);
+    expect(getAstCacheStats().misses).toBe(missesAfterPage1);
   });
 });

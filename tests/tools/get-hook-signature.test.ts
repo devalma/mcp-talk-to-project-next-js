@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { getHookSignature } from '../../src/tools/get-hook-signature.js';
+import { clearAstCache } from '../../src/tools/shared/ast-cache.js';
 
 let tmp: string;
 
@@ -13,6 +14,7 @@ function write(rel: string, content = '') {
 }
 
 beforeEach(() => {
+  clearAstCache();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hook-sig-'));
 });
 
