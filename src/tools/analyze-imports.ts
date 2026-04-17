@@ -28,11 +28,17 @@ import {
   toProjectRelative,
   type TsconfigAlias,
 } from './shared/module-resolver.js';
+import {
+  paginate,
+  paginationArgsShape,
+  paginationJsonSchema,
+} from './shared/pagination.js';
 
 const ArgsSchema = z.object({
   file: z.string(),
   direction: z.enum(['outgoing', 'incoming', 'both']).default('both').optional(),
   format: z.enum(['text', 'markdown', 'json']).default('json').optional(),
+  ...paginationArgsShape,
 });
 
 type Args = z.infer<typeof ArgsSchema>;
@@ -64,6 +70,17 @@ export interface ImportAnalysis {
   file: string;
   outgoing: OutgoingBlock | null;
   incoming: IncomingImport[] | null;
+  /**
+   * Pagination applies to `incoming`. When `direction === 'outgoing'` the
+   * fields still appear (total: 0, hasMore: false, nextOffset: null) so the
+   * response shape is stable across calls.
+   */
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+  nextOffset: number | null;
+  note?: string;
 }
 
 export const analyzeImportsTool: ToolDefinition = {
@@ -90,6 +107,7 @@ export const analyzeImportsTool: ToolDefinition = {
           enum: ['text', 'markdown', 'json'],
           default: 'json',
         },
+        ...paginationJsonSchema(),
       },
       required: ['file'],
     },
@@ -98,8 +116,14 @@ export const analyzeImportsTool: ToolDefinition = {
   handler: async (args: Args, context: ToolContext) => {
     try {
       const parsed = ArgsSchema.parse(args);
-      const { file: fileArg, direction = 'both', format = 'json' } = parsed;
-      const result = await analyzeImports(context.resolvedProjectPath, fileArg, direction);
+      const { file: fileArg, direction = 'both', format = 'json', limit, offset } = parsed;
+      const result = await analyzeImports(
+        context.resolvedProjectPath,
+        fileArg,
+        direction,
+        limit,
+        offset
+      );
 
       if (format === 'json') {
         return createTextResponse(JSON.stringify(result, null, 2));
@@ -122,7 +146,9 @@ export const analyzeImportsTool: ToolDefinition = {
 export async function analyzeImports(
   projectPath: string,
   fileArg: string,
-  direction: 'outgoing' | 'incoming' | 'both'
+  direction: 'outgoing' | 'incoming' | 'both',
+  limit?: number,
+  offset?: number
 ): Promise<ImportAnalysis> {
   const absTarget = resolveInputPath(projectPath, fileArg);
   if (!fs.existsSync(absTarget)) {
@@ -138,11 +164,41 @@ export async function analyzeImports(
     ? categorizeOutgoing(extractImports(absTarget), absTarget, projectPath, aliases)
     : null;
 
-  const incoming: IncomingImport[] | null = wantIncoming
+  const incomingRaw: IncomingImport[] | null = wantIncoming
     ? await findIncoming(projectPath, absTarget, aliases)
     : null;
 
-  return { file: relTarget, outgoing, incoming };
+  // Paginate only `incoming`. When outgoing-only, return stable zeroed page fields.
+  if (incomingRaw === null) {
+    return {
+      file: relTarget,
+      outgoing,
+      incoming: null,
+      total: 0,
+      limit: 0,
+      offset: 0,
+      hasMore: false,
+      nextOffset: null,
+    };
+  }
+
+  incomingRaw.sort((a, b) => {
+    if (a.file !== b.file) return a.file.localeCompare(b.file);
+    return a.line - b.line;
+  });
+  const paged = paginate(incomingRaw, limit, offset);
+
+  return {
+    file: relTarget,
+    outgoing,
+    incoming: paged.items,
+    total: paged.page.total,
+    limit: paged.page.limit,
+    offset: paged.page.offset,
+    hasMore: paged.page.hasMore,
+    nextOffset: paged.page.nextOffset,
+    ...(paged.note ? { note: paged.note } : {}),
+  };
 }
 
 // ---------- import extraction (AST) ----------
@@ -380,7 +436,11 @@ function formatAnalysis(a: ImportAnalysis, format: 'text' | 'markdown'): string 
   }
 
   if (a.incoming !== null) {
-    lines.push(format === 'markdown' ? `${h} Incoming (${a.incoming.length})` : `Incoming (${a.incoming.length}):`);
+    const header = `Incoming (${a.incoming.length} of ${a.total})`;
+    lines.push(format === 'markdown' ? `${h} ${header}` : `${header}:`);
+    const nextOffsetSuffix = a.nextOffset === null ? '' : ` nextOffset=${a.nextOffset}`;
+    lines.push(`  page: offset=${a.offset} limit=${a.limit} hasMore=${a.hasMore}${nextOffsetSuffix}`);
+    if (a.note) lines.push(`  note: ${a.note}`);
     for (const imp of a.incoming) {
       const specs = imp.specifiers.length ? ` { ${imp.specifiers.join(', ')} }` : '';
       const tag = imp.kind === 'value' ? '' : ` [${imp.kind}]`;

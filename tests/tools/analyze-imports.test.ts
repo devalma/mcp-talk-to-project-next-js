@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   analyzeImports,
+  analyzeImportsTool,
   extractImports,
   type ImportAnalysis,
   type OutgoingBlock,
@@ -304,5 +305,83 @@ describe('analyzeImports both directions', () => {
     const result = await analyzeImports(tmp, 'src/a.ts', 'both');
     expect(outgoingOf(result).external[0].source).toBe('react');
     expect(incomingOf(result)[0].file).toBe('src/b.ts');
+  });
+});
+
+describe('analyzeImports pagination', () => {
+  function writeFiveImporters() {
+    write('src/lib/target.ts', 'export const x = 1;');
+    for (const name of ['a', 'b', 'c', 'd', 'e']) {
+      write(`src/app/${name}.ts`, `import { x } from '../lib/target';`);
+    }
+  }
+
+  it('returns pagination metadata on the default page', async () => {
+    writeFiveImporters();
+    const r = await analyzeImports(tmp, 'src/lib/target.ts', 'incoming');
+    expect(r.total).toBe(5);
+    expect(r.incoming).toHaveLength(5);
+    expect(r.hasMore).toBe(false);
+    expect(r.nextOffset).toBeNull();
+  });
+
+  it('slices incoming with limit/offset', async () => {
+    writeFiveImporters();
+    const r = await analyzeImports(tmp, 'src/lib/target.ts', 'incoming', 2, 0);
+    expect(r.incoming).toHaveLength(2);
+    expect(r.total).toBe(5);
+    expect(r.hasMore).toBe(true);
+    expect(r.nextOffset).toBe(2);
+  });
+
+  it('last partial page clears hasMore', async () => {
+    writeFiveImporters();
+    const r = await analyzeImports(tmp, 'src/lib/target.ts', 'incoming', 2, 4);
+    expect(r.incoming).toHaveLength(1);
+    expect(r.hasMore).toBe(false);
+    expect(r.nextOffset).toBeNull();
+  });
+
+  it('offset past end returns []', async () => {
+    writeFiveImporters();
+    const r = await analyzeImports(tmp, 'src/lib/target.ts', 'incoming', 2, 100);
+    expect(r.incoming).toEqual([]);
+    expect(r.total).toBe(5);
+    expect(r.hasMore).toBe(false);
+  });
+
+  it('concatenated pages equal the full list', async () => {
+    writeFiveImporters();
+    const full = await analyzeImports(tmp, 'src/lib/target.ts', 'incoming');
+    const p1 = await analyzeImports(tmp, 'src/lib/target.ts', 'incoming', 2, 0);
+    const p2 = await analyzeImports(tmp, 'src/lib/target.ts', 'incoming', 2, 2);
+    const p3 = await analyzeImports(tmp, 'src/lib/target.ts', 'incoming', 2, 4);
+    expect([...incomingOf(p1), ...incomingOf(p2), ...incomingOf(p3)]).toEqual(
+      incomingOf(full)
+    );
+  });
+
+  it('outgoing-only responses still carry zeroed page fields', async () => {
+    write('src/a.ts', `import React from 'react';`);
+    const r = await analyzeImports(tmp, 'src/a.ts', 'outgoing');
+    expect(r.incoming).toBeNull();
+    expect(r.total).toBe(0);
+    expect(r.hasMore).toBe(false);
+    expect(r.nextOffset).toBeNull();
+  });
+
+  it('handler rejects limit <= 0 and offset < 0', async () => {
+    write('src/lib/target.ts', 'export const x = 1;');
+    const ctx = { resolvedProjectPath: tmp, pluginManager: {} as any };
+    const bad1 = await analyzeImportsTool.handler(
+      { file: 'src/lib/target.ts', limit: 0 },
+      ctx
+    );
+    expect(bad1.isError).toBe(true);
+    const bad2 = await analyzeImportsTool.handler(
+      { file: 'src/lib/target.ts', offset: -1 },
+      ctx
+    );
+    expect(bad2.isError).toBe(true);
   });
 });
