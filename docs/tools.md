@@ -8,6 +8,44 @@ Pick LLM-oriented tools when you know what you want to look up. Pick analysis to
 
 All tools accept `format: 'text' | 'markdown' | 'json'` (default `json`). JSON is what the examples show.
 
+### Pagination (1.5+)
+
+Four tools can return unbounded lists and accept optional pagination:
+
+- [`find_symbol`](#find_symbol)
+- [`find_references`](#find_references)
+- [`analyze_imports`](#analyze_imports) — paginates `incoming` only; `outgoing` is bounded by one file's import list
+- [`analyze_routes`](#analyze_routes)
+
+**Input (both optional):**
+
+| Field | Type | Default | Limits |
+|---|---|---|---|
+| `limit` | number | 100 | 1..1000; values > 1000 are clamped with a `note` |
+| `offset` | number | 0 | must be ≥ 0 |
+
+`limit <= 0` or `offset < 0` is rejected with `Invalid arguments: …`.
+
+**Output fields (in addition to each tool's own payload):**
+
+| Field | Meaning |
+|---|---|
+| `total` | matches count **before** pagination |
+| `limit` | applied limit (after clamping) |
+| `offset` | applied offset |
+| `hasMore` | `true` when more results exist beyond this page |
+| `nextOffset` | offset to request the next page, or `null` when done |
+| `note` | present only when `limit` was clamped |
+
+To walk the full list, pass `nextOffset` back as `offset` until it returns `null`. For `analyze_imports`, pagination fields also appear (zeroed) when `direction: "outgoing"` so the response shape is stable.
+
+Ordering per tool (deterministic across pages):
+
+- `find_symbol` — `(file, line, column)`
+- `find_references` — `(file, line, column)`
+- `analyze_imports.incoming` — `(file, line)`
+- `analyze_routes` — lexicographic by `path`
+
 ---
 
 ## LLM-oriented tools
@@ -50,9 +88,13 @@ Routing graph: URL → file, with rendering mode, data-fetching strategy, dynami
 ```json
 {
   "path": "string (optional) — filter by exact URL or /prefix/** glob",
-  "format": "text|markdown|json"
+  "format": "text|markdown|json",
+  "limit": "number (optional, 1..1000, default 100)",
+  "offset": "number (optional, default 0)"
 }
 ```
+
+Response includes pagination metadata — see [Pagination](#pagination-15).
 
 **Per-route fields:** `path`, `file`, `routerType` (`app`/`pages`), `kind` (`page`/`route-handler`/`api-route`), `rendering` (`server`/`client`/`null`), `dataFetching` (`async-rsc`/`gssp`/`gsp`/`route-handler`/`none`), `dynamicSegments`, `layoutChain` (App Router), `methods` (route handlers only).
 
@@ -81,13 +123,15 @@ Import graph for one file — both directions.
 {
   "file": "string — project-relative or absolute",
   "direction": "outgoing|incoming|both",
-  "format": "text|markdown|json"
+  "format": "text|markdown|json",
+  "limit": "number (optional, paginates `incoming`)",
+  "offset": "number (optional)"
 }
 ```
 
 **Returns:**
 - `outgoing`: `{ local: [...], external: [...], unresolved: [...] }` — each entry has `source`, resolved file, `specifiers`, `kind` (`value`/`type`/`dynamic`/`re-export`), line number
-- `incoming`: array of importers with their specifiers and line numbers
+- `incoming`: array of importers with their specifiers and line numbers, paginated — see [Pagination](#pagination-15)
 - Unrequested direction is `null` (consistent response shape)
 
 **Resolution handles:** relative paths with auto-extension probing, TS-ESM `./foo.js` → `./foo.ts` on disk, tsconfig `paths` aliases (`@/*`), `index.*` directory resolution, comment-tolerant `tsconfig.json` parsing.
@@ -103,9 +147,13 @@ Locate declarations by name across the project. The glue between "I know the nam
 {
   "name": "string — identifier (e.g. 'Button', 'useAuth')",
   "kind": "any|component|hook|function|type|interface|class|variable",
-  "format": "text|markdown|json"
+  "format": "text|markdown|json",
+  "limit": "number (optional, 1..1000, default 100)",
+  "offset": "number (optional, default 0)"
 }
 ```
+
+Response includes pagination metadata — see [Pagination](#pagination-15).
 
 **Classification:**
 - `useFoo` → `hook`
@@ -126,9 +174,13 @@ Every place in the project that imports and uses a given symbol. Blast radius of
 {
   "symbol": "string — exported name",
   "file": "string — file that defines it",
-  "format": "text|markdown|json"
+  "format": "text|markdown|json",
+  "limit": "number (optional, 1..1000, default 100)",
+  "offset": "number (optional, default 0)"
 }
 ```
+
+Response includes pagination metadata — see [Pagination](#pagination-15). Note: pagination caps output size, not scan cost — the tool still walks every file to find references.
 
 **Handles:** named imports (`import { A as B }`), default imports with any local alias, namespace imports (`* as ns` → reports `ns.symbol` member access), re-exports (`export { X } from …`), type-only imports.
 

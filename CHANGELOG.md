@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-04-16
+
+### Added
+- **Pagination on heavy tools.** `find_symbol`, `find_references`,
+  `analyze_imports` (`incoming` only), and `analyze_routes` now accept
+  optional `limit` and `offset` and report `total`, `limit`, `offset`,
+  `hasMore`, and `nextOffset` alongside their existing payload. Default
+  `limit` is 100; values above 1000 are clamped with a `note`.
+  Ordering is deterministic per tool (see [`docs/tools.md`](docs/tools.md#pagination-15)).
+- Shared `src/tools/shared/pagination.ts` helper — single source of
+  truth for the args schema, JSON Schema fragment, and slice logic so
+  every paginated tool stays on the same contract.
+
+### Changed
+- **Response shape (additive).** The four paginated tools now include
+  five new top-level pagination fields. Existing consumers are
+  unaffected — array fields (`matches`, `references`, `incoming`,
+  `routes`) continue to exist; they now hold a single page. Consumers
+  that need the full list can iterate with `nextOffset` until it
+  returns `null`.
+- `find_symbol.total` redefined: previously equalled
+  `matches.length` (filtered count). Now means "matches count before
+  pagination". When no pagination args are passed the two values
+  coincide, so the change is a no-op for existing callers.
+- `analyze_imports` pagination fields appear even when
+  `direction: "outgoing"` (zeroed) so the response shape is stable.
+
 ## [1.4.1] - 2026-04-16
 
 ### Changed

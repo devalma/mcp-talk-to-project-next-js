@@ -1,10 +1,14 @@
 # Next Steps / Handoff Notes
 
-Pragmatic guide for the next developer. Captures known limitations, natural extensions, and hygiene items that emerged during the 1.3.0–1.4.1 work. Ranked by impact — start at the top, stop when time runs out.
+Pragmatic guide for the next developer. Captures known limitations, natural extensions, and hygiene items that emerged during the 1.3.0–1.5.0 work. Ranked by impact — start at the top, stop when time runs out.
 
-## 🎯 Next milestone: 1.5 — Pagination
+## 🎯 Next milestone: 1.6 — AST cache
 
-See [1.5-pagination.md](1.5-pagination.md) for the scoped handoff doc. TL;DR: add `limit` / `offset` to `find_references`, `find_symbol`, `analyze_imports.incoming`, and `analyze_routes`, with `total` / `hasMore` / `nextOffset` in the response. ~2 days of work. Delete that file when 1.5 ships.
+Pagination in 1.5 created the access pattern where caching pays off: paged calls to the same tool hit the same files. An in-memory `(absPath, mtime) → AST` map (keyed on mtime so it self-invalidates) would cut repeat-call latency by an order of magnitude on `find_references`, `find_symbol`, `analyze_imports.incoming`, and the per-page flow introduced in 1.5. See §2 below for the fuller pitch.
+
+## Shipped in 1.5.0
+
+- ✅ Pagination on the four unbounded-list tools (`find_symbol`, `find_references`, `analyze_imports.incoming`, `analyze_routes`). Shared helper at [src/tools/shared/pagination.ts](../src/tools/shared/pagination.ts). See [docs/tools.md#pagination-15](tools.md#pagination-15).
 
 ## Shipped in 1.4.0
 
@@ -59,9 +63,7 @@ These are bounded, acknowledged, and have explicit notes at call sites. If a use
 
 ### High value
 
-1. **Pagination / token budgeting** — scoped for 1.5. See [1.5-pagination.md](1.5-pagination.md).
-
-2. **AST cache within a session** — every call re-parses files it has already seen. In-memory map keyed by `(absPath, mtime)` invalidated on file change would cut repeat-call latency by an order of magnitude. Especially pays off now that `get_file_exports`, `find_symbol`, and `get_component_props` often hit the same files back-to-back. Natural 1.6 candidate — pagination in 1.5 already assumes the same file is read across paged calls, which makes the cache trivially beneficial.
+1. **AST cache within a session** — scoped for 1.6. Every call re-parses files it has already seen. In-memory map keyed by `(absPath, mtime)` invalidated on file change would cut repeat-call latency by an order of magnitude. Pagination landed in 1.5, so paged calls now re-hit the same files on every page — the cache is a drop-in multiplier on that flow. `get_file_exports`, `find_symbol`, and `get_component_props` also hit the same files back-to-back during an LLM session.
 
 3. **Follow barrel re-exports in `find_references` / `analyze_imports`** — `get_file_exports` now surfaces re-export chains in structured form. The next step is letting `find_references` follow `export { X } from './y'` so the importer chain collapses to the eventual consumer. See §1 below for the tradeoff.
 
