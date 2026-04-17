@@ -21,10 +21,16 @@ import path from 'path';
 import { glob } from 'glob';
 import type { ToolDefinition, ToolContext } from './types.js';
 import { createTextResponse, createErrorResponse } from './types.js';
+import {
+  paginate,
+  paginationArgsShape,
+  paginationJsonSchema,
+} from './shared/pagination.js';
 
 const ArgsSchema = z.object({
   path: z.string().optional(),
   format: z.enum(['text', 'markdown', 'json']).default('json').optional(),
+  ...paginationArgsShape,
 });
 
 type Args = z.infer<typeof ArgsSchema>;
@@ -71,22 +77,34 @@ export const analyzeRoutesTool: ToolDefinition = {
           description: 'Output format',
           default: 'json',
         },
+        ...paginationJsonSchema(),
       },
     },
   } as Tool,
 
   handler: async (args: Args, context: ToolContext) => {
     try {
-      const { path: pathFilter, format = 'json' } = ArgsSchema.parse(args);
+      const { path: pathFilter, format = 'json', limit, offset } = ArgsSchema.parse(args);
       const routes = await analyzeRoutes(context.resolvedProjectPath);
       const filtered = pathFilter ? routes.filter(matchesPathFilter(pathFilter)) : routes;
+      // analyzeRoutes already sorts by path — that's a stable ordering for pagination.
+      const paged = paginate(filtered, limit, offset);
+
+      const payload = {
+        count: paged.items.length,
+        total: paged.page.total,
+        limit: paged.page.limit,
+        offset: paged.page.offset,
+        hasMore: paged.page.hasMore,
+        nextOffset: paged.page.nextOffset,
+        ...(paged.note ? { note: paged.note } : {}),
+        routes: paged.items,
+      };
 
       if (format === 'json') {
-        return createTextResponse(
-          JSON.stringify({ count: filtered.length, routes: filtered }, null, 2)
-        );
+        return createTextResponse(JSON.stringify(payload, null, 2));
       }
-      return createTextResponse(formatRoutes(filtered, format));
+      return createTextResponse(formatRoutes(paged.items, format, paged.page, paged.note));
     } catch (error) {
       if (error instanceof z.ZodError) {
         return createErrorResponse(
@@ -346,11 +364,25 @@ export function matchesPathFilter(filter: string): (r: Route) => boolean {
   return (r) => r.path === filter;
 }
 
-function formatRoutes(routes: Route[], format: 'text' | 'markdown'): string {
+function formatRoutes(
+  routes: Route[],
+  format: 'text' | 'markdown',
+  page?: { total: number; limit: number; offset: number; hasMore: boolean; nextOffset: number | null },
+  note?: string
+): string {
   if (!routes.length) return 'No routes found.';
   const lines: string[] = [];
-  if (format === 'markdown') lines.push(`# Routes (${routes.length})\n`);
-  else lines.push(`Routes (${routes.length}):`);
+  const header =
+    page !== undefined
+      ? `Routes (${routes.length} of ${page.total})`
+      : `Routes (${routes.length})`;
+  if (format === 'markdown') lines.push(`# ${header}\n`);
+  else lines.push(`${header}:`);
+  if (page !== undefined) {
+    const nextOffsetSuffix = page.nextOffset === null ? '' : ` nextOffset=${page.nextOffset}`;
+    lines.push(`  page: offset=${page.offset} limit=${page.limit} hasMore=${page.hasMore}${nextOffsetSuffix}`);
+    if (note) lines.push(`  note: ${note}`);
+  }
   for (const r of routes) {
     const head = `${r.path}  [${r.routerType}/${r.kind}]`;
     lines.push(format === 'markdown' ? `## ${head}` : head);

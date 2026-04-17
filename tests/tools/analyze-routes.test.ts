@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import {
   analyzeRoutes,
+  analyzeRoutesTool,
   matchesPathFilter,
 } from '../../src/tools/analyze-routes.js';
 
@@ -214,5 +215,86 @@ describe('matchesPathFilter', () => {
     const f = matchesPathFilter('/**');
     expect(f(route('/'))).toBe(true);
     expect(f(route('/anything/here'))).toBe(true);
+  });
+});
+
+describe('analyzeRoutesTool pagination', () => {
+  function writeFiveRoutes() {
+    write('src/app/a/page.tsx', 'export default function A() {}');
+    write('src/app/b/page.tsx', 'export default function B() {}');
+    write('src/app/c/page.tsx', 'export default function C() {}');
+    write('src/app/d/page.tsx', 'export default function D() {}');
+    write('src/app/e/page.tsx', 'export default function E() {}');
+  }
+
+  async function invoke(args: any) {
+    const ctx = { resolvedProjectPath: tmp, pluginManager: {} as any };
+    const result = await analyzeRoutesTool.handler(args, ctx);
+    const text = (result.content[0] as any).text;
+    return { result, text, parsed: result.isError ? null : JSON.parse(text) };
+  }
+
+  it('default page returns everything', async () => {
+    writeFiveRoutes();
+    const { parsed } = await invoke({});
+    expect(parsed.total).toBe(5);
+    expect(parsed.routes).toHaveLength(5);
+    expect(parsed.hasMore).toBe(false);
+    expect(parsed.nextOffset).toBeNull();
+  });
+
+  it('paged call returns sliced routes', async () => {
+    writeFiveRoutes();
+    const { parsed } = await invoke({ limit: 2, offset: 0 });
+    expect(parsed.routes).toHaveLength(2);
+    expect(parsed.total).toBe(5);
+    expect(parsed.hasMore).toBe(true);
+    expect(parsed.nextOffset).toBe(2);
+  });
+
+  it('last partial page clears hasMore', async () => {
+    writeFiveRoutes();
+    const { parsed } = await invoke({ limit: 2, offset: 4 });
+    expect(parsed.routes).toHaveLength(1);
+    expect(parsed.hasMore).toBe(false);
+    expect(parsed.nextOffset).toBeNull();
+  });
+
+  it('offset past end returns []', async () => {
+    writeFiveRoutes();
+    const { parsed } = await invoke({ limit: 2, offset: 100 });
+    expect(parsed.routes).toEqual([]);
+    expect(parsed.total).toBe(5);
+    expect(parsed.hasMore).toBe(false);
+  });
+
+  it('concatenated pages equal the full list (lexicographic by path)', async () => {
+    writeFiveRoutes();
+    const full = await invoke({});
+    const p1 = await invoke({ limit: 2, offset: 0 });
+    const p2 = await invoke({ limit: 2, offset: 2 });
+    const p3 = await invoke({ limit: 2, offset: 4 });
+    expect([...p1.parsed.routes, ...p2.parsed.routes, ...p3.parsed.routes]).toEqual(
+      full.parsed.routes
+    );
+  });
+
+  it('pagination applies after the path filter', async () => {
+    write('src/app/settings/a/page.tsx', 'export default function A() {}');
+    write('src/app/settings/b/page.tsx', 'export default function B() {}');
+    write('src/app/settings/c/page.tsx', 'export default function C() {}');
+    write('src/app/other/page.tsx', 'export default function O() {}');
+    const { parsed } = await invoke({ path: '/settings/**', limit: 2, offset: 0 });
+    expect(parsed.total).toBe(3);
+    expect(parsed.routes).toHaveLength(2);
+    expect(parsed.hasMore).toBe(true);
+  });
+
+  it('handler rejects limit <= 0 and offset < 0', async () => {
+    writeFiveRoutes();
+    const { result: r1 } = await invoke({ limit: 0 });
+    expect(r1.isError).toBe(true);
+    const { result: r2 } = await invoke({ offset: -1 });
+    expect(r2.isError).toBe(true);
   });
 });
