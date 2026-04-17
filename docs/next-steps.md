@@ -4,7 +4,7 @@ Pragmatic guide for the next developer. Captures known limitations, natural exte
 
 ## 🎯 Next milestone: 1.6 — AST cache
 
-Pagination in 1.5 created the access pattern where caching pays off: paged calls to the same tool hit the same files. An in-memory `(absPath, mtime) → AST` map (keyed on mtime so it self-invalidates) would cut repeat-call latency by an order of magnitude on `find_references`, `find_symbol`, `analyze_imports.incoming`, and the per-page flow introduced in 1.5. See §2 below for the fuller pitch.
+See [1.6-ast-cache.md](1.6-ast-cache.md) for the scoped handoff doc. TL;DR: introduce `src/tools/shared/ast-cache.ts` with mtime-keyed `parseFileCached()`, swap the five inline `safeParse` helpers in the LLM tools over to it, add a "page 2 hits zero new misses" integration test per paginated tool. ~1–1.5 days. Delete that file when 1.6 ships.
 
 ## Shipped in 1.5.0
 
@@ -63,7 +63,7 @@ These are bounded, acknowledged, and have explicit notes at call sites. If a use
 
 ### High value
 
-1. **AST cache within a session** — scoped for 1.6. Every call re-parses files it has already seen. In-memory map keyed by `(absPath, mtime)` invalidated on file change would cut repeat-call latency by an order of magnitude. Pagination landed in 1.5, so paged calls now re-hit the same files on every page — the cache is a drop-in multiplier on that flow. `get_file_exports`, `find_symbol`, and `get_component_props` also hit the same files back-to-back during an LLM session.
+1. **AST cache within a session** — scoped for 1.6. See [1.6-ast-cache.md](1.6-ast-cache.md).
 
 3. **Follow barrel re-exports in `find_references` / `analyze_imports`** — `get_file_exports` now surfaces re-export chains in structured form. The next step is letting `find_references` follow `export { X } from './y'` so the importer chain collapses to the eventual consumer. See §1 below for the tradeoff.
 
