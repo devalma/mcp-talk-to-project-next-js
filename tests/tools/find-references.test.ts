@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { findReferences } from '../../src/tools/find-references.js';
+import { findReferences, findReferencesTool } from '../../src/tools/find-references.js';
 
 let tmp: string;
 
@@ -183,5 +183,87 @@ function greet(fetchUser: string) { return fetchUser; }`
 
   it('throws when the target file does not exist', async () => {
     await expect(findReferences(tmp, 'x', 'nope.ts')).rejects.toThrow(/File not found/);
+  });
+});
+
+describe('findReferences - pagination', () => {
+  // 5 importers, each with one call site → 10 references total.
+  function writeFiveImporters() {
+    write('src/lib/api.ts', 'export function fetchUser() {}');
+    for (const name of ['a', 'b', 'c', 'd', 'e']) {
+      write(
+        `src/app/${name}.ts`,
+        `import { fetchUser } from '../lib/api';
+fetchUser();`
+      );
+    }
+  }
+
+  it('default page returns everything', async () => {
+    writeFiveImporters();
+    const r = await findReferences(tmp, 'fetchUser', 'src/lib/api.ts');
+    expect(r.total).toBeGreaterThanOrEqual(10);
+    expect(r.references).toHaveLength(r.total);
+    expect(r.hasMore).toBe(false);
+    expect(r.nextOffset).toBeNull();
+  });
+
+  it('paged call returns the requested slice', async () => {
+    writeFiveImporters();
+    const r = await findReferences(tmp, 'fetchUser', 'src/lib/api.ts', 2, 0);
+    expect(r.references).toHaveLength(2);
+    expect(r.hasMore).toBe(true);
+    expect(r.nextOffset).toBe(2);
+  });
+
+  it('last partial page clears hasMore', async () => {
+    writeFiveImporters();
+    const full = await findReferences(tmp, 'fetchUser', 'src/lib/api.ts');
+    const lastOffset = full.total - 1;
+    const r = await findReferences(tmp, 'fetchUser', 'src/lib/api.ts', 2, lastOffset);
+    expect(r.references).toHaveLength(1);
+    expect(r.hasMore).toBe(false);
+    expect(r.nextOffset).toBeNull();
+  });
+
+  it('offset past the end returns empty', async () => {
+    writeFiveImporters();
+    const r = await findReferences(tmp, 'fetchUser', 'src/lib/api.ts', 5, 1000);
+    expect(r.references).toEqual([]);
+    expect(r.hasMore).toBe(false);
+  });
+
+  it('concatenated pages equal the full list', async () => {
+    writeFiveImporters();
+    const all = await findReferences(tmp, 'fetchUser', 'src/lib/api.ts');
+    const collected: typeof all.references = [];
+    let offset: number | null = 0;
+    while (offset !== null) {
+      const page: Awaited<ReturnType<typeof findReferences>> = await findReferences(
+        tmp,
+        'fetchUser',
+        'src/lib/api.ts',
+        3,
+        offset
+      );
+      collected.push(...page.references);
+      offset = page.nextOffset;
+    }
+    expect(collected).toEqual(all.references);
+  });
+
+  it('handler rejects limit <= 0 and offset < 0', async () => {
+    write('src/lib/api.ts', 'export function fetchUser() {}');
+    const ctx = { resolvedProjectPath: tmp, pluginManager: {} as any };
+    const badLimit = await findReferencesTool.handler(
+      { symbol: 'fetchUser', file: 'src/lib/api.ts', limit: 0 },
+      ctx
+    );
+    expect(badLimit.isError).toBe(true);
+    const negOffset = await findReferencesTool.handler(
+      { symbol: 'fetchUser', file: 'src/lib/api.ts', offset: -1 },
+      ctx
+    );
+    expect(negOffset.isError).toBe(true);
   });
 });

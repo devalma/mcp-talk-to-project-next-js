@@ -27,11 +27,17 @@ import {
   toProjectRelative,
   type TsconfigAlias,
 } from './shared/module-resolver.js';
+import {
+  paginate,
+  paginationArgsShape,
+  paginationJsonSchema,
+} from './shared/pagination.js';
 
 const ArgsSchema = z.object({
   symbol: z.string().min(1),
   file: z.string(),
   format: z.enum(['text', 'markdown', 'json']).default('json').optional(),
+  ...paginationArgsShape,
 });
 
 type Args = z.infer<typeof ArgsSchema>;
@@ -50,8 +56,14 @@ export interface FindReferencesResult {
   symbol: string;
   definedIn: string;
   references: Reference[];
-  total: number;
   filesScanned: number;
+  /** References count BEFORE pagination. */
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+  nextOffset: number | null;
+  note?: string;
 }
 
 export const findReferencesTool: ToolDefinition = {
@@ -76,6 +88,7 @@ export const findReferencesTool: ToolDefinition = {
           enum: ['text', 'markdown', 'json'],
           default: 'json',
         },
+        ...paginationJsonSchema(),
       },
       required: ['symbol', 'file'],
     },
@@ -84,8 +97,8 @@ export const findReferencesTool: ToolDefinition = {
   handler: async (args: Args, context: ToolContext) => {
     try {
       const parsedArgs = ArgsSchema.parse(args);
-      const { symbol, file: fileArg, format = 'json' } = parsedArgs;
-      const result = await findReferences(context.resolvedProjectPath, symbol, fileArg);
+      const { symbol, file: fileArg, format = 'json', limit, offset } = parsedArgs;
+      const result = await findReferences(context.resolvedProjectPath, symbol, fileArg, limit, offset);
 
       if (format === 'json') {
         return createTextResponse(JSON.stringify(result, null, 2));
@@ -109,7 +122,9 @@ export const findReferencesTool: ToolDefinition = {
 export async function findReferences(
   projectPath: string,
   symbol: string,
-  fileArg: string
+  fileArg: string,
+  limit?: number,
+  offset?: number
 ): Promise<FindReferencesResult> {
   const absTarget = resolveInputPath(projectPath, fileArg);
   if (!fs.existsSync(absTarget)) throw new Error(`File not found: ${fileArg}`);
@@ -138,12 +153,26 @@ export async function findReferences(
     references.push(...refs);
   }
 
+  // Stable ordering across pages: (file, line, column).
+  references.sort((a, b) => {
+    if (a.file !== b.file) return a.file.localeCompare(b.file);
+    if (a.line !== b.line) return a.line - b.line;
+    return a.column - b.column;
+  });
+
+  const paged = paginate(references, limit, offset);
+
   return {
     symbol,
     definedIn,
-    references,
-    total: references.length,
+    references: paged.items,
     filesScanned: files.length,
+    total: paged.page.total,
+    limit: paged.page.limit,
+    offset: paged.page.offset,
+    hasMore: paged.page.hasMore,
+    nextOffset: paged.page.nextOffset,
+    ...(paged.note ? { note: paged.note } : {}),
   };
 }
 
@@ -448,6 +477,9 @@ function formatReferences(
   lines.push(title);
   lines.push(`Defined in: ${r.definedIn}`);
   lines.push(`Total: ${r.total}  (scanned ${r.filesScanned} files)`);
+  const nextOffsetSuffix = r.nextOffset === null ? '' : ` nextOffset=${r.nextOffset}`;
+  lines.push(`Page: offset=${r.offset} limit=${r.limit} hasMore=${r.hasMore}${nextOffsetSuffix}`);
+  if (r.note) lines.push(`Note: ${r.note}`);
   lines.push('');
 
   const byFile = new Map<string, Reference[]>();
