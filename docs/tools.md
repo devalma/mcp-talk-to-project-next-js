@@ -202,7 +202,9 @@ Response includes pagination metadata — see [Pagination](#pagination-15). Note
 
 **Reference kinds:** `import`, `call`, `jsx`, `type`, `identifier`.
 
-**Known gap:** No scope analysis — a local variable that shadows the imported name gets counted as a reference. Rare in clean code.
+**Barrel re-exports (1.7+):** importers that reach the target through one or more barrel files (`export { X } from '…'`, `export *`, `export { default as X } from '…'`, renamed chains) are reported as references to the target. When a reference passes through barrels, the `via` field on each `Reference` lists the chain — nearest-to-importer first, nearest-to-target last. Cycles are detected and broken; third-party sources (`export … from 'react'`) are not followed.
+
+**Shadow-safe (1.7+):** identifier matching uses scope-aware binding lookup, so a local `const`, parameter, or destructured binding with the same name as the import is not counted as a reference.
 
 ---
 

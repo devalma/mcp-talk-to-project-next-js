@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-04-16
+
+### Fixed
+- **`find_references` follows barrel re-exports.** Importers that reach
+  the target through one or more `export … from '…'` files are now
+  reported as references to the target. Handles renamed re-exports
+  (`export { X as Y } from '…'`), `export *`,
+  `export { default as Foo } from '…'`, multi-hop chains, and cycles
+  (detected and broken, no infinite loops). Previously these importers
+  were invisible — `find_references` returned the barrel file line only,
+  making rename blast-radius calls dangerously incomplete in any
+  codebase with `index.ts` barrels.
+- **`find_references` honors shadowing.** Identifier matching now uses
+  scope-aware binding lookup via `@babel/traverse`. A local parameter,
+  `const`, or destructured binding with the same name as the imported
+  symbol no longer produces a false-positive reference.
+
+### Added
+- `Reference.via?: string[]` — present when the reference reached the
+  target through a barrel chain. Lists the barrel files in order,
+  nearest-to-importer first, nearest-to-target last. Absent for direct
+  imports. LLMs can use this to explain "renaming this symbol will also
+  require touching these N barrel files."
+
+### Changed
+- **Internal only.** The hand-rolled identifier walker in
+  `find_references` was replaced by a `@babel/traverse` visitor. Parse
+  cost is unchanged (the 1.6 AST cache already deduplicates), traversal
+  cost is comparable.
+
 ## [1.6.0] - 2026-04-16
 
 ### Added

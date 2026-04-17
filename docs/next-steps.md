@@ -2,9 +2,14 @@
 
 Pragmatic guide for the next developer. Captures known limitations, natural extensions, and hygiene items that emerged during the 1.3.0–1.5.0 work. Ranked by impact — start at the top, stop when time runs out.
 
-## 🎯 Next milestone: 1.6 — AST cache
+## Shipped in 1.7.0
 
-See [1.6-ast-cache.md](1.6-ast-cache.md) for the scoped handoff doc. TL;DR: introduce `src/tools/shared/ast-cache.ts` with mtime-keyed `parseFileCached()`, swap the five inline `safeParse` helpers in the LLM tools over to it, add a "page 2 hits zero new misses" integration test per paginated tool. ~1–1.5 days. Delete that file when 1.6 ships.
+- ✅ **`find_references` follows barrel re-exports.** Target-directed BFS over `export … from '…'` edges (named, star, renamed, `default as`); handles multi-hop chains and cycles. Importers that reach the target through barrels are reported with a `via` chain. Third-party sources aren't followed.
+- ✅ **`find_references` honors shadowing.** Swapped the hand-rolled identifier walker for a `@babel/traverse` visitor that checks `path.scope.getBinding(name)` against the matched import spec. Parameters, block-scoped `const`s, and destructured bindings with the same name as the import no longer produce false positives.
+
+## Shipped in 1.6.0
+
+- ✅ **Session-scoped AST cache.** [`src/tools/shared/ast-cache.ts`](../src/tools/shared/ast-cache.ts) — mtime-keyed, LRU-capped at 500, in-memory. Unified five LLM-oriented tools (`find_symbol`, `find_references`, `get_file_exports`, `get_component_props`, `get_hook_signature`) behind one parser with the union of previously-used plugins. Paged calls and the natural `find_symbol` → `get_component_props` → `find_references` chain no longer re-parse.
 
 ## Shipped in 1.5.0
 
@@ -22,12 +27,6 @@ See [1.6-ast-cache.md](1.6-ast-cache.md) for the scoped handoff doc. TL;DR: intr
 
 These are bounded, acknowledged, and have explicit notes at call sites. If a user hits one, the tool reports the limitation rather than guessing — so extensions are additive, not breaking.
 
-### `find_references` — shadow detection
-- **File:** [src/tools/find-references.ts](../src/tools/find-references.ts)
-- **Gap:** No scope analysis. A local variable that shadows the imported name gets counted as a reference.
-- **Fix sketch:** Track identifier bindings per scope while walking. `@babel/traverse` has scope support; we intentionally avoided it to skip the ESM-default-export interop dance (see commit `11b1a3c`). When adding scope, confirm the import still works cleanly with the project's `"type": "module"` setup.
-- **Priority:** Medium — shadowing is rare in clean code, but silently wrong answers erode trust.
-
 ### `get_component_props` — remaining gaps (mapped / conditional types)
 - **File:** [src/tools/get-component-props.ts](../src/tools/get-component-props.ts)
 - **Shipped in 1.4:** intersections (`A & B`), interface `extends`, utility types (`Omit`, `Pick`, `Partial`, `Required`), `React.FC<Props>` / `FC<Props>` generics, cross-file intersection resolution.
@@ -35,10 +34,9 @@ These are bounded, acknowledged, and have explicit notes at call sites. If a use
 - **Fix sketch:** The resolver in `src/tools/get-component-props.ts` (`resolveTypeToMembers`) is the central dispatch point; add new cases beside `TSIntersectionType` / `TSTypeReference`. Mapped types over keyof a known type are the most valuable next step; conditional types are rare in prop surfaces.
 - **Priority:** Low-medium — these patterns are much rarer in prop types than the 1.4 cases were.
 
-### `analyze_imports` / `find_references` — multi-hop re-exports
-- **Gap:** Barrel files that re-export (`export { X } from './y'`) are treated as a direct import of `y`. If you search for references to a symbol and an importer goes through a barrel, the barrel shows as the importer rather than the eventual consumer.
-- **Fix sketch:** Add a "follow re-exports" pass that collapses barrel hops. Risk: false attribution if a re-export renames the symbol through a chain.
-- **Priority:** Medium — common in larger codebases with `index.ts` barrels.
+### `analyze_imports` — follow barrel re-exports
+- **Gap:** `analyze_imports` still reports the literal import source, so barrel imports show as "imports from `./index`" rather than resolving to the eventual module. `find_references` follows barrels as of 1.7; `analyze_imports` has different semantics (answers "what does this file import?", which is intentionally literal) and was deliberately left out. If a consumer wants collapsed-through-barrel import lists, add it as an opt-in flag rather than changing the default.
+- **Priority:** Low — the literal behavior is often what users want.
 
 ### `analyze_routes` — Pages Router HTTP methods
 - **File:** [src/tools/analyze-routes.ts](../src/tools/analyze-routes.ts)
@@ -63,22 +61,20 @@ These are bounded, acknowledged, and have explicit notes at call sites. If a use
 
 ### High value
 
-1. **AST cache within a session** — scoped for 1.6. See [1.6-ast-cache.md](1.6-ast-cache.md).
+1. **`get_context_providers(file)`** — walk parents in the JSX render tree and list every Context.Provider in effect. Next.js apps lean on context heavily and LLMs often don't know what's in scope.
 
-3. **Follow barrel re-exports in `find_references` / `analyze_imports`** — `get_file_exports` now surfaces re-export chains in structured form. The next step is letting `find_references` follow `export { X } from './y'` so the importer chain collapses to the eventual consumer. See §1 below for the tradeoff.
+2. **`analyze_server_actions`** — find every `'use server'` directive and its exported actions with signatures. This is first-class Next.js 14+ surface and not covered elsewhere.
 
 ### Medium value
 
-5. **`get_context_providers(file)`** — walk parents in the JSX render tree and list every Context.Provider in effect. Next.js apps lean on context heavily and LLMs often don't know what's in scope.
+3. **Usage counts in `find_symbol`** — optionally include reference count per match (`usages: number`) so LLMs can rank by importance. Now cheap with the 1.6 cache + 1.7's correct barrel + shadow handling; the count is finally trustworthy.
 
-6. **`analyze_server_actions`** — find every `'use server'` directive and its exported actions with signatures. This is first-class Next.js 14+ surface and not covered elsewhere.
-
-7. **Usage counts in `find_symbol`** — optionally include reference count per match (`usages: number`) so LLMs can rank by importance. Expensive but bounded.
+4. **Extend the AST cache to `analyze_imports.extractImports()`** — the 1.6 follow-up explicitly left out. `extractImports` still calls `parse()` directly. Swapping it on the shared cache gets `analyze_imports` the same page-2-is-free speedup the other paginated tools enjoy.
 
 ### Low value (don't rush)
 
-8. Class component prop extraction via `componentDidMount` / `state` analysis — class components are legacy for new code.
-9. Enum extraction as a separate `find_symbol` kind — TS enums are niche.
+5. Class component prop extraction via `componentDidMount` / `state` analysis — class components are legacy for new code.
+6. Enum extraction as a separate `find_symbol` kind — TS enums are niche.
 
 ---
 

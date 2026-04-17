@@ -144,7 +144,7 @@ const u = fetchUser();`
     expect(result.references.some((r) => r.kind === 'call')).toBe(true);
   });
 
-  it('skips shadowing declarations', async () => {
+  it('parameter shadowing drops the inner reference (1.7)', async () => {
     write('src/lib/api.ts', 'export function fetchUser() {}');
     write(
       'src/app/page.tsx',
@@ -153,11 +153,41 @@ function greet(fetchUser: string) { return fetchUser; }`
     );
 
     const result = await findReferences(tmp, 'fetchUser', 'src/lib/api.ts');
-    // We don't do proper scope analysis — the parameter shadowing will produce
-    // a false-positive identifier hit. That's acceptable for the MVP; we just
-    // document it by asserting the import is reported. Real-world shadowing is
-    // rare and LLMs can eyeball the line numbers.
     expect(result.references.some((r) => r.kind === 'import')).toBe(true);
+    // The parameter and its return-statement use both shadow the import.
+    // Neither should appear; only the import line does.
+    expect(result.references.filter((r) => r.file === 'src/app/page.tsx')).toHaveLength(1);
+  });
+
+  it('block-scoped const shadowing drops the inner reference (1.7)', async () => {
+    write('src/lib/api.ts', 'export function fetchUser() {}');
+    write(
+      'src/app/page.tsx',
+      `import { fetchUser } from '../lib/api';
+function g() { const fetchUser = 1; return fetchUser; }`
+    );
+
+    const result = await findReferences(tmp, 'fetchUser', 'src/lib/api.ts');
+    const inFile = result.references.filter((r) => r.file === 'src/app/page.tsx');
+    expect(inFile.map((r) => r.kind)).toEqual(['import']);
+  });
+
+  it('namespace parameter shadowing drops inner member-access hits (1.7)', async () => {
+    write('src/lib/util.ts', 'export const x = 1;');
+    write(
+      'src/app/page.tsx',
+      `import * as utils from '../lib/util';
+function f(utils: { x: number }) { return utils.x; }
+const v = utils.x;`
+    );
+
+    const result = await findReferences(tmp, 'x', 'src/lib/util.ts');
+    const memberHits = result.references.filter(
+      (r) => r.file === 'src/app/page.tsx' && r.kind !== 'import' && r.localName === 'utils.x'
+    );
+    // The outer `utils.x` is a real reference; the inner one is shadowed.
+    expect(memberHits).toHaveLength(1);
+    expect(memberHits[0].line).toBe(3);
   });
 
   it('returns zero references when nothing imports the file', async () => {
@@ -276,5 +306,151 @@ fetchUser();`
     const missesAfterPage1 = getAstCacheStats().misses;
     await findReferences(tmp, 'fetchUser', 'src/lib/api.ts', 2, 2);
     expect(getAstCacheStats().misses).toBe(missesAfterPage1);
+  });
+});
+
+describe('findReferences - barrel re-exports (1.7)', () => {
+  it('follows a 1-hop named re-export', async () => {
+    write('src/lib/api.ts', 'export function fetchUser() {}');
+    write('src/index.ts', `export { fetchUser } from './lib/api';`);
+    write(
+      'src/app/page.tsx',
+      `import { fetchUser } from '..';\nfetchUser();`
+    );
+
+    const result = await findReferences(tmp, 'fetchUser', 'src/lib/api.ts');
+    const importer = result.references.filter((r) => r.file === 'src/app/page.tsx');
+    expect(importer.map((r) => r.kind).sort()).toEqual(['call', 'import']);
+    for (const r of importer) {
+      expect(r.via).toEqual(['src/index.ts']);
+    }
+  });
+
+  it('follows a renamed re-export: export { X as Y } from …', async () => {
+    write('src/lib/api.ts', 'export function fetchUser() {}');
+    write('src/index.ts', `export { fetchUser as getUser } from './lib/api';`);
+    write(
+      'src/app/page.tsx',
+      `import { getUser } from '..';\ngetUser();`
+    );
+
+    const result = await findReferences(tmp, 'fetchUser', 'src/lib/api.ts');
+    const importer = result.references.filter((r) => r.file === 'src/app/page.tsx');
+    expect(importer.some((r) => r.kind === 'call' && r.localName === 'getUser')).toBe(true);
+    for (const r of importer) {
+      expect(r.via).toEqual(['src/index.ts']);
+    }
+  });
+
+  it('follows export * from …', async () => {
+    write('src/lib/api.ts', 'export function fetchUser() {}');
+    write('src/index.ts', `export * from './lib/api';`);
+    write(
+      'src/app/page.tsx',
+      `import { fetchUser } from '..';\nfetchUser();`
+    );
+
+    const result = await findReferences(tmp, 'fetchUser', 'src/lib/api.ts');
+    const importer = result.references.filter((r) => r.file === 'src/app/page.tsx');
+    expect(importer.map((r) => r.kind).sort()).toEqual(['call', 'import']);
+  });
+
+  it('follows a 2-hop chain a → b → target', async () => {
+    write('src/lib/api.ts', 'export function fetchUser() {}');
+    write('src/lib/index.ts', `export { fetchUser } from './api';`);
+    write('src/index.ts', `export { fetchUser } from './lib';`);
+    write(
+      'src/app/page.tsx',
+      `import { fetchUser } from '..';\nfetchUser();`
+    );
+
+    const result = await findReferences(tmp, 'fetchUser', 'src/lib/api.ts');
+    const importer = result.references.filter((r) => r.file === 'src/app/page.tsx');
+    expect(importer.length).toBeGreaterThan(0);
+    // nearest-to-importer first, nearest-to-target last
+    for (const r of importer) {
+      expect(r.via).toEqual(['src/index.ts', 'src/lib/index.ts']);
+    }
+  });
+
+  it('follows a chain with renames on every hop', async () => {
+    write('src/lib/api.ts', 'export function fetchUser() {}');
+    write('src/lib/index.ts', `export { fetchUser as getUser } from './api';`);
+    write('src/index.ts', `export { getUser as loadUser } from './lib';`);
+    write(
+      'src/app/page.tsx',
+      `import { loadUser } from '..';\nloadUser();`
+    );
+
+    const result = await findReferences(tmp, 'fetchUser', 'src/lib/api.ts');
+    const importer = result.references.filter((r) => r.file === 'src/app/page.tsx');
+    expect(importer.some((r) => r.kind === 'call' && r.localName === 'loadUser')).toBe(true);
+  });
+
+  it('does not follow re-exports whose source leaves the project', async () => {
+    // `export { useState } from 'react'` must not count as a reference to our symbol
+    // just because we also have a local `useState` file. The third-party source
+    // isn't resolved, so the edge isn't added.
+    write('src/lib/api.ts', 'export function fetchUser() {}');
+    write('src/barrel.ts', `export { useState } from 'react';`);
+    write(
+      'src/app/page.tsx',
+      `import { useState } from './barrel';\nuseState();`
+    );
+
+    const result = await findReferences(tmp, 'fetchUser', 'src/lib/api.ts');
+    expect(result.references.filter((r) => r.file === 'src/app/page.tsx')).toEqual([]);
+  });
+
+  it('breaks cycles in barrel graphs without hanging', async () => {
+    // Legitimate chain: page.tsx → src/a.ts → src/b.ts → src/lib/api.ts.
+    // Plus a side-cycle on an unrelated symbol `other` between a and b.
+    write('src/lib/api.ts', 'export function fetchUser() {}\nexport const other = 1;');
+    write('src/a.ts', `export { fetchUser } from './b';\nexport { other } from './b';`);
+    write(
+      'src/b.ts',
+      `export { fetchUser } from './lib/api';\nexport { other } from './a';`
+    );
+    write(
+      'src/app/page.tsx',
+      `import { fetchUser } from '../a';\nfetchUser();`
+    );
+
+    const result = await findReferences(tmp, 'fetchUser', 'src/lib/api.ts');
+    const importer = result.references.filter((r) => r.file === 'src/app/page.tsx');
+    expect(importer.length).toBeGreaterThan(0);
+    for (const r of importer) {
+      expect(r.via).toEqual(['src/a.ts', 'src/b.ts']);
+    }
+  });
+
+  it('direct imports omit `via`', async () => {
+    write('src/lib/api.ts', 'export function fetchUser() {}');
+    write(
+      'src/app/page.tsx',
+      `import { fetchUser } from '../lib/api';\nfetchUser();`
+    );
+
+    const result = await findReferences(tmp, 'fetchUser', 'src/lib/api.ts');
+    const importer = result.references.filter((r) => r.file === 'src/app/page.tsx');
+    for (const r of importer) {
+      expect(r.via).toBeUndefined();
+    }
+  });
+
+  it('export { default as Foo } from target — exposes default as named', async () => {
+    write('src/lib/api.ts', 'export default function fetchUser() {}');
+    write('src/index.ts', `export { default as fetchUser } from './lib/api';`);
+    write(
+      'src/app/page.tsx',
+      `import { fetchUser } from '..';\nfetchUser();`
+    );
+
+    const result = await findReferences(tmp, 'fetchUser', 'src/lib/api.ts');
+    const importer = result.references.filter((r) => r.file === 'src/app/page.tsx');
+    expect(importer.some((r) => r.kind === 'call')).toBe(true);
+    for (const r of importer) {
+      expect(r.via).toEqual(['src/index.ts']);
+    }
   });
 });

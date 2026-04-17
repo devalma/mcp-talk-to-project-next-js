@@ -5,12 +5,15 @@
  * that imports and uses it — including the local name the importer chose
  * (handles renamed / default / namespace imports).
  *
- * Output is LLM-friendly: flat list of { file, line, column, kind } so the
- * caller can surface "where does this break if I rename it?" answers.
+ * Correctness (1.7):
+ *   - Barrel re-exports are followed: an importer that reaches the target
+ *     through one or more `export … from '…'` files is attributed to the
+ *     target, with `via` listing the barrel chain.
+ *   - Shadowing is honored: identifiers whose nearest binding is not the
+ *     matched import are not reported.
  *
- * Uses @babel/parser + a manual walker to keep the dependency surface small.
- * No babel-traverse import (avoids the ESM default-export weirdness that
- * existing plugins had to work around).
+ * Output is LLM-friendly: flat list of { file, line, column, kind, via? } so
+ * the caller can surface "where does this break if I rename it?" answers.
  */
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
@@ -18,6 +21,7 @@ import { z } from 'zod';
 import fs from 'node:fs';
 import path from 'node:path';
 import { glob } from 'glob';
+import traverseMod from '@babel/traverse';
 import type { ToolDefinition, ToolContext } from './types.js';
 import { createTextResponse, createErrorResponse } from './types.js';
 import {
@@ -32,6 +36,11 @@ import {
   paginationArgsShape,
   paginationJsonSchema,
 } from './shared/pagination.js';
+
+// ESM default-export workaround for @babel/traverse — same pattern as
+// src/plugins/common/ast-utils.ts.
+const traverse: typeof traverseMod =
+  typeof traverseMod === 'function' ? traverseMod : (traverseMod as any).default;
 
 const ArgsSchema = z.object({
   symbol: z.string().min(1),
@@ -50,6 +59,11 @@ export interface Reference {
   column: number;
   kind: RefKind;
   localName: string;
+  /**
+   * Barrel chain the reference passed through, nearest-to-importer first.
+   * Absent for direct imports. Each entry is a project-relative path.
+   */
+  via?: string[];
 }
 
 export interface FindReferencesResult {
@@ -145,11 +159,13 @@ export async function findReferences(
     ],
   });
 
+  const targets = buildTargetIndex(absTarget, symbol, files, projectPath, aliases);
+
   const references: Reference[] = [];
 
   for (const abs of files) {
     if (path.resolve(abs) === path.resolve(absTarget)) continue;
-    const refs = collectReferencesInFile(abs, absTarget, projectPath, symbol, aliases);
+    const refs = collectReferencesInFile(abs, targets, projectPath, aliases);
     references.push(...refs);
   }
 
@@ -176,24 +192,200 @@ export async function findReferences(
   };
 }
 
-interface ResolvedImport {
-  localName: string;
+// ---------- barrel re-export index ----------
+
+interface BarrelEdge {
+  from: string;                              // abs path of the re-exporting file
+  to: string;                                // abs path of the source it re-exports from
+  kind: 'named' | 'star' | 'default-as';
+  originalName: string;                      // name as exported by `to` ('*' for star, 'default' for default-as)
+  exposedName: string;                       // name this edge exposes outward ('*' for star)
   line: number;
   column: number;
 }
 
+/**
+ * A file path + the name at which `symbol` is exposed there.
+ * `via` is the barrel chain (nearest-to-importer first). Direct target has via=[].
+ */
+interface ResolvedTarget {
+  absFile: string;
+  exposedName: string;
+  via: string[];                             // project-relative paths
+}
+
+function collectBarrelEdges(
+  absFile: string,
+  projectPath: string,
+  aliases: TsconfigAlias[]
+): BarrelEdge[] {
+  const parsed = parseFileCached(absFile);
+  if (!parsed) return [];
+  const edges: BarrelEdge[] = [];
+
+  for (const node of parsed.ast.program.body) {
+    const source = (node as any).source?.value;
+    if (!source) continue;
+    const resolved = resolveImportSource(source, absFile, projectPath, aliases);
+    if (!resolved) continue;                 // third-party source — don't follow
+    const to = path.resolve(projectPath, resolved);
+
+    if (node.type === 'ExportNamedDeclaration') {
+      for (const spec of (node as any).specifiers ?? []) {
+        if (spec.type !== 'ExportSpecifier') continue;
+        const local = nameOf(spec.local);
+        const exported = nameOf(spec.exported);
+        const isDefault = local === 'default';
+        edges.push({
+          from: absFile,
+          to,
+          kind: isDefault ? 'default-as' : 'named',
+          originalName: isDefault ? 'default' : local,
+          exposedName: exported,
+          line: spec.loc?.start.line ?? 0,
+          column: spec.loc?.start.column ?? 0,
+        });
+      }
+    } else if (node.type === 'ExportAllDeclaration') {
+      // `export * as ns from '…'` has node.exported set — skip per 1.7 scope.
+      if ((node as any).exported) continue;
+      edges.push({
+        from: absFile,
+        to,
+        kind: 'star',
+        originalName: '*',
+        exposedName: '*',
+        line: node.loc?.start.line ?? 0,
+        column: node.loc?.start.column ?? 0,
+      });
+    }
+  }
+  return edges;
+}
+
+/**
+ * Does the target file's `export default` refer to a declaration whose
+ * name is `symbol`? Needed so that `export { default as X } from 'target'`
+ * can be recognized as re-exposing the queried symbol as X.
+ */
+function targetDefaultMatches(absTarget: string, symbol: string): boolean {
+  const parsed = parseFileCached(absTarget);
+  if (!parsed) return false;
+  for (const node of parsed.ast.program.body) {
+    if (node.type !== 'ExportDefaultDeclaration') continue;
+    const decl: any = (node as any).declaration;
+    if (!decl) continue;
+    if (decl.type === 'Identifier') return decl.name === symbol;
+    if (
+      (decl.type === 'FunctionDeclaration' ||
+        decl.type === 'ClassDeclaration' ||
+        decl.type === 'FunctionExpression' ||
+        decl.type === 'ClassExpression') &&
+      decl.id?.name === symbol
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function buildTargetIndex(
+  absTarget: string,
+  symbol: string,
+  files: string[],
+  projectPath: string,
+  aliases: TsconfigAlias[]
+): ResolvedTarget[] {
+  // Collect every re-export edge in the project, indexed by its `to`.
+  const edgesByTo = new Map<string, BarrelEdge[]>();
+  for (const f of files) {
+    const fAbs = path.resolve(f);
+    const edges = collectBarrelEdges(fAbs, projectPath, aliases);
+    for (const e of edges) {
+      const key = path.resolve(e.to);
+      const arr = edgesByTo.get(key) ?? [];
+      arr.push(e);
+      edgesByTo.set(key, arr);
+    }
+  }
+
+  const targetIsDefaultNamedSymbol = targetDefaultMatches(absTarget, symbol);
+
+  const targets: ResolvedTarget[] = [
+    { absFile: path.resolve(absTarget), exposedName: symbol, via: [] },
+  ];
+  const visited = new Set<string>([path.resolve(absTarget) + '|' + symbol]);
+  const queue: Array<{ absFile: string; name: string; via: string[] }> = [
+    { absFile: path.resolve(absTarget), name: symbol, via: [] },
+  ];
+
+  while (queue.length) {
+    const cur = queue.shift()!;
+    const edges = edgesByTo.get(cur.absFile) ?? [];
+    for (const e of edges) {
+      const nextName = mapNameAcrossEdge(e, cur, absTarget, targetIsDefaultNamedSymbol, symbol);
+      if (!nextName) continue;
+      const fromAbs = path.resolve(e.from);
+      const key = fromAbs + '|' + nextName;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      const newVia = [toProjectRelative(fromAbs, projectPath), ...cur.via];
+      targets.push({ absFile: fromAbs, exposedName: nextName, via: newVia });
+      queue.push({ absFile: fromAbs, name: nextName, via: newVia });
+    }
+  }
+
+  return targets;
+}
+
+function mapNameAcrossEdge(
+  edge: BarrelEdge,
+  cur: { absFile: string; name: string },
+  absTarget: string,
+  targetIsDefaultNamedSymbol: boolean,
+  symbol: string
+): string | null {
+  if (edge.kind === 'named') {
+    return edge.originalName === cur.name ? edge.exposedName : null;
+  }
+  if (edge.kind === 'star') {
+    return cur.name;                         // star re-exports preserve names
+  }
+  // default-as: only fires at the first hop out of the target file, and only
+  // when the target's default binding names `symbol`. After that, the name
+  // propagates like a named export.
+  if (
+    edge.kind === 'default-as' &&
+    cur.absFile === path.resolve(absTarget) &&
+    cur.name === symbol &&
+    targetIsDefaultNamedSymbol
+  ) {
+    return edge.exposedName;
+  }
+  return null;
+}
+
+// ---------- per-file reference collection ----------
+
+interface ResolvedImport {
+  localName: string;
+  line: number;
+  column: number;
+  specNode?: any;                            // binding identity for scope check; unset for re-export matches
+  via: string[];                             // barrel chain for this match
+}
+
 function collectReferencesInFile(
   absFile: string,
-  absTarget: string,
+  targets: ResolvedTarget[],
   projectPath: string,
-  symbol: string,
   aliases: TsconfigAlias[]
 ): Reference[] {
   const parsed = parseFileCached(absFile);
   if (!parsed) return [];
   const ast = parsed.ast;
 
-  const matchingImports = findMatchingImports(ast, absFile, absTarget, projectPath, symbol, aliases);
+  const matchingImports = findMatchingImports(ast, absFile, targets, projectPath, aliases);
   if (matchingImports.length === 0) return [];
 
   const relFile = toProjectRelative(absFile, projectPath);
@@ -206,8 +398,10 @@ function collectReferencesInFile(
       column: m.column,
       kind: 'import',
       localName: m.localName,
+      ...(m.via.length ? { via: m.via } : {}),
     });
-    const usages = findLocalNameUsages(ast, m.localName);
+    if (!m.specNode) continue;               // re-export match — no in-file usages to chase
+    const usages = findLocalNameUsages(ast, m.localName, m.specNode);
     for (const u of usages) {
       refs.push({
         file: relFile,
@@ -215,6 +409,7 @@ function collectReferencesInFile(
         column: u.column,
         kind: u.kind,
         localName: m.localName,
+        ...(m.via.length ? { via: m.via } : {}),
       });
     }
   }
@@ -224,26 +419,44 @@ function collectReferencesInFile(
 
 // ---------- import matching ----------
 
+function targetForSource(
+  source: string,
+  importerAbsFile: string,
+  targets: ResolvedTarget[],
+  projectPath: string,
+  aliases: TsconfigAlias[]
+): ResolvedTarget | null {
+  const resolved = resolveImportSource(source, importerAbsFile, projectPath, aliases);
+  if (!resolved) return null;
+  const resolvedAbs = path.resolve(projectPath, resolved);
+  for (const t of targets) {
+    if (t.absFile === resolvedAbs) return t;
+  }
+  return null;
+}
+
 function findMatchingImports(
   ast: any,
   absFile: string,
-  absTarget: string,
+  targets: ResolvedTarget[],
   projectPath: string,
-  symbol: string,
   aliases: TsconfigAlias[]
 ): ResolvedImport[] {
   const matches: ResolvedImport[] = [];
 
   for (const node of ast.program.body) {
     if (node.type === 'ImportDeclaration') {
-      if (!resolvesTo(node.source.value, absFile, absTarget, projectPath, aliases)) continue;
+      const tgt = targetForSource(node.source.value, absFile, targets, projectPath, aliases);
+      if (!tgt) continue;
       for (const spec of node.specifiers ?? []) {
-        const resolved = resolveImportSpecifier(spec, symbol);
+        const resolved = resolveImportSpecifier(spec, tgt.exposedName);
         if (resolved) {
           matches.push({
             localName: resolved,
             line: spec.loc?.start.line ?? 0,
             column: spec.loc?.start.column ?? 0,
+            specNode: spec,
+            via: tgt.via,
           });
         }
       }
@@ -251,23 +464,28 @@ function findMatchingImports(
       (node.type === 'ExportNamedDeclaration' || node.type === 'ExportAllDeclaration') &&
       node.source
     ) {
-      if (!resolvesTo(node.source.value, absFile, absTarget, projectPath, aliases)) continue;
-      // Re-exports — treat as a reference at the re-export site.
+      const tgt = targetForSource(node.source.value, absFile, targets, projectPath, aliases);
+      if (!tgt) continue;
+      // Re-export lines count as references at the re-export site.
       if (node.type === 'ExportAllDeclaration') {
         matches.push({
           localName: '*',
           line: node.loc?.start.line ?? 0,
           column: node.loc?.start.column ?? 0,
+          via: tgt.via,
         });
       } else {
         for (const spec of node.specifiers ?? []) {
           if (spec.type !== 'ExportSpecifier') continue;
           const localName = nameOf(spec.local);
-          if (localName === symbol) {
+          // Named re-export whose `local` matches how the target exposes the
+          // symbol (post-mapping). `star` targets expose '*' so we skip.
+          if (tgt.exposedName !== '*' && localName === tgt.exposedName) {
             matches.push({
               localName,
               line: spec.loc?.start.line ?? 0,
               column: spec.loc?.start.column ?? 0,
+              via: tgt.via,
             });
           }
         }
@@ -278,7 +496,7 @@ function findMatchingImports(
   return matches;
 }
 
-function resolveImportSpecifier(spec: any, symbol: string): string | null {
+function resolveImportSpecifier(spec: any, exposedName: string): string | null {
   if (spec.type === 'ImportDefaultSpecifier') {
     // Default import — we can't know the original export name without parsing
     // the target, so we match any default. The caller may narrow by also
@@ -287,13 +505,12 @@ function resolveImportSpecifier(spec: any, symbol: string): string | null {
   }
   if (spec.type === 'ImportSpecifier') {
     const imported = nameOf(spec.imported);
-    if (imported === symbol) return spec.local.name;
+    if (imported === exposedName) return spec.local.name;
     return null;
   }
   if (spec.type === 'ImportNamespaceSpecifier') {
-    // `import * as ns from '...'` — references to the symbol appear as `ns.symbol`.
-    // The localName is the namespace identifier; we'll detect member accesses later.
-    return spec.local.name + '.' + symbol;
+    // `import * as ns from '...'` — references appear as `ns.<exposedName>`.
+    return spec.local.name + '.' + exposedName;
   }
   return null;
 }
@@ -307,59 +524,74 @@ function nameOf(ident: any): string {
 
 // ---------- identifier usage walker ----------
 
+/**
+ * Walk `ast` and report every reference to `localName` whose nearest binding
+ * is the import spec we matched. Shadowing local declarations (params,
+ * `const`s, destructured bindings) do not count.
+ *
+ * For namespaced imports (`import * as ns from '…'`), `localName` is `ns.member`
+ * and we detect `MemberExpression(ns.member)` whose `ns` binding is our import.
+ */
 function findLocalNameUsages(
   ast: any,
-  localName: string
+  localName: string,
+  importSpecNode: any
 ): Array<{ line: number; column: number; kind: RefKind }> {
   const results: Array<{ line: number; column: number; kind: RefKind }> = [];
   const isNamespaced = localName.includes('.');
   const [nsBase, nsMember] = isNamespaced ? localName.split('.') : [localName, ''];
+  const baseName = isNamespaced ? nsBase : localName;
 
-  function visit(node: any, parent: any, parentKey: string | null) {
-    if (!node || typeof node !== 'object') return;
+  const isOurBinding = (scope: any): boolean => {
+    const binding = scope?.getBinding?.(baseName);
+    return !!binding && binding.path?.node === importSpecNode;
+  };
 
-    if (node.type === 'Identifier' && node.name === nsBase && !isNamespaced) {
-      const kind = classifyIdentifier(node, parent, parentKey);
-      if (kind !== null) {
+  traverse(ast, {
+    Identifier(p: any) {
+      const node = p.node;
+      if (node.name !== baseName) return;
+
+      if (isNamespaced) {
+        const parent = p.parent;
+        if (parent?.type !== 'MemberExpression' || parent.object !== node) return;
+        if (parent.computed) return;
+        if (parent.property?.type !== 'Identifier' || parent.property.name !== nsMember) return;
+        if (!isOurBinding(p.scope)) return;
+        const grandparent = p.parentPath?.parent;
+        const grandparentKey = p.parentPath?.parentKey;
+        const kind = classifyIdentifier(parent, grandparent, grandparentKey) ?? 'identifier';
         results.push({
-          line: node.loc?.start.line ?? 0,
-          column: node.loc?.start.column ?? 0,
+          line: parent.loc?.start.line ?? 0,
+          column: parent.loc?.start.column ?? 0,
           kind,
         });
+        return;
       }
-    } else if (
-      isNamespaced &&
-      node.type === 'MemberExpression' &&
-      node.object?.type === 'Identifier' &&
-      node.object.name === nsBase &&
-      node.property?.type === 'Identifier' &&
-      node.property.name === nsMember
-    ) {
-      const kind = classifyIdentifier(node, parent, parentKey);
+
+      const kind = classifyIdentifier(node, p.parent, p.parentKey);
+      if (kind === null) return;
+      if (!isOurBinding(p.scope)) return;
       results.push({
         line: node.loc?.start.line ?? 0,
         column: node.loc?.start.column ?? 0,
-        kind: kind ?? 'identifier',
+        kind,
       });
-    } else if (node.type === 'JSXIdentifier' && node.name === nsBase && !isNamespaced) {
-      if (parent?.type === 'JSXOpeningElement' || parent?.type === 'JSXClosingElement') {
-        results.push({
-          line: node.loc?.start.line ?? 0,
-          column: node.loc?.start.column ?? 0,
-          kind: 'jsx',
-        });
-      }
-    }
-
-    for (const key in node) {
-      if (key === 'loc' || key === 'start' || key === 'end') continue;
-      const v = (node as any)[key];
-      if (Array.isArray(v)) for (const c of v) visit(c, node, key);
-      else if (v && typeof v === 'object') visit(v, node, key);
-    }
-  }
-
-  visit(ast.program, null, null);
+    },
+    JSXIdentifier(p: any) {
+      if (isNamespaced) return;
+      const node = p.node;
+      if (node.name !== baseName) return;
+      const parent = p.parent;
+      if (parent?.type !== 'JSXOpeningElement' && parent?.type !== 'JSXClosingElement') return;
+      if (!isOurBinding(p.scope)) return;
+      results.push({
+        line: node.loc?.start.line ?? 0,
+        column: node.loc?.start.column ?? 0,
+        kind: 'jsx',
+      });
+    },
+  });
   return dedupeByPosition(results);
 }
 
@@ -413,18 +645,6 @@ function dedupeByPosition<T extends { line: number; column: number; kind: RefKin
 }
 
 // ---------- resolution helpers ----------
-
-function resolvesTo(
-  source: string,
-  fromAbsFile: string,
-  targetAbsFile: string,
-  projectPath: string,
-  aliases: TsconfigAlias[]
-): boolean {
-  const resolved = resolveImportSource(source, fromAbsFile, projectPath, aliases);
-  if (!resolved) return false;
-  return path.resolve(projectPath, resolved) === path.resolve(targetAbsFile);
-}
 
 function resolveInputPath(projectPath: string, fileArg: string): string {
   if (path.isAbsolute(fileArg)) return fileArg;
