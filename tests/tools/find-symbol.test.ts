@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { findSymbol } from '../../src/tools/find-symbol.js';
+import { findSymbol, findSymbolTool } from '../../src/tools/find-symbol.js';
 
 let tmp: string;
 
@@ -195,5 +195,75 @@ describe('findSymbol - multi-file & filters', () => {
     const r = await findSymbol(tmp, 'NotThere');
     expect(r.total).toBe(0);
     expect(r.matches).toEqual([]);
+    expect(r.hasMore).toBe(false);
+    expect(r.nextOffset).toBeNull();
+  });
+});
+
+describe('findSymbol - pagination', () => {
+  // 5 matches in deterministic (file, line) order.
+  function writeFiveMatches() {
+    write('src/a/Btn.tsx', `export function Btn() { return <div/>; }`);
+    write('src/b/Btn.tsx', `export function Btn() { return <div/>; }`);
+    write('src/c/Btn.tsx', `export function Btn() { return <div/>; }`);
+    write('src/d/Btn.tsx', `export function Btn() { return <div/>; }`);
+    write('src/e/Btn.tsx', `export function Btn() { return <div/>; }`);
+  }
+
+  it('default page returns everything and reports no more pages', async () => {
+    writeFiveMatches();
+    const r = await findSymbol(tmp, 'Btn');
+    expect(r.total).toBe(5);
+    expect(r.matches).toHaveLength(5);
+    expect(r.hasMore).toBe(false);
+    expect(r.nextOffset).toBeNull();
+  });
+
+  it('paged call returns the requested slice and nextOffset', async () => {
+    writeFiveMatches();
+    const r = await findSymbol(tmp, 'Btn', 'any', 2, 0);
+    expect(r.matches).toHaveLength(2);
+    expect(r.total).toBe(5);
+    expect(r.hasMore).toBe(true);
+    expect(r.nextOffset).toBe(2);
+  });
+
+  it('last partial page clears hasMore', async () => {
+    writeFiveMatches();
+    const r = await findSymbol(tmp, 'Btn', 'any', 2, 4);
+    expect(r.matches).toHaveLength(1);
+    expect(r.hasMore).toBe(false);
+    expect(r.nextOffset).toBeNull();
+  });
+
+  it('offset past the end returns an empty slice', async () => {
+    writeFiveMatches();
+    const r = await findSymbol(tmp, 'Btn', 'any', 2, 10);
+    expect(r.matches).toEqual([]);
+    expect(r.total).toBe(5);
+    expect(r.hasMore).toBe(false);
+  });
+
+  it('paging through the full list yields the full list in order', async () => {
+    writeFiveMatches();
+    const p1 = await findSymbol(tmp, 'Btn', 'any', 2, 0);
+    const p2 = await findSymbol(tmp, 'Btn', 'any', 2, 2);
+    const p3 = await findSymbol(tmp, 'Btn', 'any', 2, 4);
+    const all = await findSymbol(tmp, 'Btn');
+    expect([...p1.matches, ...p2.matches, ...p3.matches]).toEqual(all.matches);
+  });
+
+  it('handler rejects limit <= 0 and offset < 0', async () => {
+    const ctx = { resolvedProjectPath: tmp, pluginManager: {} as any };
+    const badLimit = await findSymbolTool.handler({ name: 'X', limit: 0 }, ctx);
+    expect(badLimit.isError).toBe(true);
+    expect((badLimit.content[0] as any).text).toMatch(/limit/);
+
+    const negLimit = await findSymbolTool.handler({ name: 'X', limit: -1 }, ctx);
+    expect(negLimit.isError).toBe(true);
+
+    const negOffset = await findSymbolTool.handler({ name: 'X', offset: -1 }, ctx);
+    expect(negOffset.isError).toBe(true);
+    expect((negOffset.content[0] as any).text).toMatch(/offset/);
   });
 });

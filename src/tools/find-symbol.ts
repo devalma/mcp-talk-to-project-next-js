@@ -19,13 +19,17 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import fs from 'node:fs';
-import path from 'node:path';
 import { glob } from 'glob';
 import { parse } from '@babel/parser';
 import type { ToolDefinition, ToolContext } from './types.js';
 import { createTextResponse, createErrorResponse } from './types.js';
 import { toProjectRelative } from './shared/module-resolver.js';
 import { classifyFunctionKind, extendsReactComponent } from './shared/classify.js';
+import {
+  paginate,
+  paginationArgsShape,
+  paginationJsonSchema,
+} from './shared/pagination.js';
 
 const ArgsSchema = z.object({
   name: z.string().min(1),
@@ -43,6 +47,7 @@ const ArgsSchema = z.object({
     .default('any')
     .optional(),
   format: z.enum(['text', 'markdown', 'json']).default('json').optional(),
+  ...paginationArgsShape,
 });
 
 type Args = z.infer<typeof ArgsSchema>;
@@ -71,8 +76,14 @@ export interface FindSymbolResult {
   name: string;
   kindFilter: Args['kind'];
   matches: SymbolMatch[];
-  total: number;
   filesScanned: number;
+  /** Matches count BEFORE pagination. */
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+  nextOffset: number | null;
+  note?: string;
 }
 
 export const findSymbolTool: ToolDefinition = {
@@ -107,6 +118,7 @@ export const findSymbolTool: ToolDefinition = {
           enum: ['text', 'markdown', 'json'],
           default: 'json',
         },
+        ...paginationJsonSchema(),
       },
       required: ['name'],
     },
@@ -114,8 +126,8 @@ export const findSymbolTool: ToolDefinition = {
 
   handler: async (args: Args, context: ToolContext) => {
     try {
-      const { name, kind = 'any', format = 'json' } = ArgsSchema.parse(args);
-      const result = await findSymbol(context.resolvedProjectPath, name, kind);
+      const { name, kind = 'any', format = 'json', limit, offset } = ArgsSchema.parse(args);
+      const result = await findSymbol(context.resolvedProjectPath, name, kind, limit, offset);
 
       if (format === 'json') {
         return createTextResponse(JSON.stringify(result, null, 2));
@@ -139,7 +151,9 @@ export const findSymbolTool: ToolDefinition = {
 export async function findSymbol(
   projectPath: string,
   name: string,
-  kindFilter: Args['kind'] = 'any'
+  kindFilter: Args['kind'] = 'any',
+  limit?: number,
+  offset?: number
 ): Promise<FindSymbolResult> {
   const files = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs}', {
     cwd: projectPath,
@@ -167,13 +181,32 @@ export async function findSymbol(
       ? matches
       : matches.filter((m) => m.kind === kindFilter);
 
+  // Stable ordering across pages: (file, line, column).
+  filtered.sort(compareByFileLineColumn);
+
+  const paged = paginate(filtered, limit, offset);
+
   return {
     name,
     kindFilter,
-    matches: filtered,
-    total: filtered.length,
+    matches: paged.items,
     filesScanned: files.length,
+    total: paged.page.total,
+    limit: paged.page.limit,
+    offset: paged.page.offset,
+    hasMore: paged.page.hasMore,
+    nextOffset: paged.page.nextOffset,
+    ...(paged.note ? { note: paged.note } : {}),
   };
+}
+
+function compareByFileLineColumn(
+  a: { file: string; line: number; column: number },
+  b: { file: string; line: number; column: number }
+): number {
+  if (a.file !== b.file) return a.file.localeCompare(b.file);
+  if (a.line !== b.line) return a.line - b.line;
+  return a.column - b.column;
 }
 
 function findInFile(absFile: string, projectPath: string, name: string): SymbolMatch[] {
@@ -358,16 +391,20 @@ function safeParse(content: string, absFile: string): any {
 // ---------- formatting ----------
 
 function formatResult(r: FindSymbolResult, format: 'text' | 'markdown'): string {
-  const lines: string[] = [];
-  lines.push(
+  const matchWord = r.total === 1 ? '' : 'es';
+  const title =
     format === 'markdown'
-      ? `# find_symbol "${r.name}" (${r.total} match${r.total === 1 ? '' : 'es'})`
-      : `Symbol: ${r.name}  [${r.total} match${r.total === 1 ? '' : 'es'}]`
-  );
+      ? `# find_symbol "${r.name}" (${r.total} match${matchWord})`
+      : `Symbol: ${r.name}  [${r.total} match${matchWord}]`;
+
+  const lines: string[] = [title];
   lines.push(`Scanned: ${r.filesScanned} files`);
   if (r.kindFilter && r.kindFilter !== 'any') {
     lines.push(`Filter: kind=${r.kindFilter}`);
   }
+  const nextOffsetSuffix = r.nextOffset === null ? '' : ` nextOffset=${r.nextOffset}`;
+  lines.push(`Page: offset=${r.offset} limit=${r.limit} hasMore=${r.hasMore}${nextOffsetSuffix}`);
+  if (r.note) lines.push(`Note: ${r.note}`);
   lines.push('');
 
   for (const m of r.matches) {

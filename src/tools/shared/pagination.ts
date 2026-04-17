@@ -63,8 +63,14 @@ export function paginate<T>(
   return result;
 }
 
-/** Zod fragment to merge into a tool's args schema. */
-export const paginationArgsSchema = z.object({
+/**
+ * Zod shape for pagination args. Spread into a tool's z.object({...}):
+ *
+ *   const ArgsSchema = z.object({ file: z.string(), ...paginationArgsShape });
+ *
+ * (zod 4 deprecates `.merge()`; shape-spread is the recommended pattern.)
+ */
+export const paginationArgsShape = {
   limit: z
     .number()
     .int()
@@ -75,7 +81,10 @@ export const paginationArgsSchema = z.object({
     .int()
     .nonnegative({ message: 'offset must be >= 0' })
     .optional(),
-});
+};
+
+/** Standalone schema for validating just the pagination fields (used in tests). */
+export const paginationArgsSchema = z.object(paginationArgsShape);
 
 export type PaginationArgs = z.infer<typeof paginationArgsSchema>;
 
